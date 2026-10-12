@@ -1,0 +1,16 @@
+# Contract specification of the Nasdaq-100 CFD at YOUR broker.
+# Status UNVERIFIED: every value below is empty on purpose. In phase A2 they are
+# read from MT5 symbol_info (read-only) and compared with the Specification window.
+# Until then the risk engine and the backtester refuse to size or run real trades.
+symbol: null          # e.g. NAS100 / USTEC / US100 — broker-specific, never assumed
+source: UNVERIFIED
+point: null
+digits: null
+tick_size: null
+tick_value: null      # profit per tick per 1 lot, in account currency
+contract_size: null
+volume_min: null
+volume_max: null
+volume_step: null
+currency_profit: null
+account_currency: null

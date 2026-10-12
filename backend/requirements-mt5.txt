@@ -1,0 +1,2 @@
+# Phase A2 only — official MT5 package, Windows-only (read-only adapter).
+MetaTrader5==5.0.6231

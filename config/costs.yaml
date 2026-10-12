@@ -1,0 +1,7 @@
+# Execution cost assumptions for simulation. The spread itself comes from the data.
+# TEMPORARY until A2 measures the broker's real spread/slippage at the open.
+spread_multiplier: 1.0
+min_spread: 0.0
+slippage: 0.5                  # price units per market fill
+commission_per_lot_per_side: 0.0
+max_entry_deviation: null

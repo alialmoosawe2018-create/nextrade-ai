@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Data and run outputs (never committed)
+data/*
+!data/.gitkeep
+# Secrets
+.env
+*.env
+!.env.example
+# Mutation-testing scratch copies
+.mutation/

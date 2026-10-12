@@ -1,0 +1,11 @@
+# Hard limits enforced in backend code (app/risk/engine.py).
+# TEMPORARY values until the owner sets capital and acceptable drawdown.
+risk_per_trade_pct: 0.5        # code caps this at 2.0
+max_daily_loss_pct: 1.5        # code caps this at 5.0
+max_trades_per_day: 2
+max_concurrent_positions: 1
+max_spread: null               # price units; null = NOT CONFIGURED -> every trade rejected (set in A2 from measured spreads)
+max_data_age_seconds: 90
+max_volume: null
+trading_enabled: true          # false = kill switch
+allowed_modes: [SIMULATION]    # REAL is locked in code regardless of this list

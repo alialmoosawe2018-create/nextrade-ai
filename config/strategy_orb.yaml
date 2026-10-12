@@ -1,0 +1,24 @@
+# Opening Range Breakout + Retest — rules in docs/TRADING_RULES.md.
+# Distances are in PRICE units (index points as quoted), not MT5 points.
+# These are INITIAL hypothesis values, not optimized. They are calibrated on
+# the dev split only (A2) and frozen before validation/holdout.
+name: orb_retest
+version: "1"
+opening_range_minutes: 15
+confirm_tf_minutes: 5
+breakout_buffer: 0.0
+breakout_deadline_minutes: 90
+retest_window_minutes: 30
+retest_tolerance: 3.0
+retest_max_penetration: 10.0
+stop_method: retest_swing      # retest_swing | range_opposite
+stop_buffer: 2.0
+min_stop_distance: 5.0
+max_stop_distance: 60.0
+reward_risk: 1.5
+last_entry_minutes: 120
+max_hold_minutes: 30
+flat_before_close_minutes: 5
+max_gap_minutes: 2
+min_range: null
+max_range: null
