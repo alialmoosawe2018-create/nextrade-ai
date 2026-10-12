@@ -12,6 +12,17 @@ from app.execution.paper import ClosedTrade
 MIN_TRADES_FOR_CONCLUSION = 30
 
 
+def json_safe(v):
+    """NaN/inf -> None (not computable), recursively. JSON has no NaN and we never fake a number."""
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
+    if isinstance(v, dict):
+        return {k: json_safe(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [json_safe(x) for x in v]
+    return v
+
+
 def _r_stats(rs: list[float]) -> dict:
     n = len(rs)
     mean = sum(rs) / n
@@ -59,4 +70,4 @@ def summarize(trades: list[ClosedTrade], starting_balance: float, sessions_cover
         "by_weekday": {str(k): _r_stats(g.r_multiple.tolist())
                        for k, g in df.groupby(pd.to_datetime(df.entry_time).dt.day_name())},
     }
-    return out
+    return json_safe(out)

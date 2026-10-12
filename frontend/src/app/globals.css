@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* Dark by default (owner preference). Light tokens apply only when explicitly chosen. */
+:root {
+  --bg: #0d1117;
+  --panel: #151b24;
+  --panel-2: #1b2330;
+  --line: #273142;
+  --text: #e6e9ef;
+  --muted: #8f9bb0;
+  --accent: #4f8cff;
+  --good: #34c38f;
+  --warn: #f1b44c;
+  --bad: #f46a6a;
+  --mock: #f46a6a;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --panel-2: #f0f2f6;
+  --line: #dde2ea;
+  --text: #1a2230;
+  --muted: #5d6879;
+  --accent: #2f6fe4;
+  --good: #1e9e6f;
+  --warn: #b7791f;
+  --bad: #d64545;
+  --mock: #d64545;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-plex-arabic), system-ui, sans-serif;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  font-family: var(--font-plex-arabic), system-ui, sans-serif;
+}
+
+/* Numbers stay left-to-right inside RTL text. */
+.num {
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-variant-numeric: tabular-nums;
+}
+
+input,
+select,
+textarea {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  width: 100%;
+}
+
+input:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+}

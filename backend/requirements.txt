@@ -6,3 +6,7 @@ pydantic==2.14.1
 PyYAML==6.0.3
 exchange_calendars==4.13.2
 pytest==9.1.1
+# Platform API (verified installed 2026-10-12)
+fastapi==0.143.0
+uvicorn==0.54.0
+httpx==0.28.1

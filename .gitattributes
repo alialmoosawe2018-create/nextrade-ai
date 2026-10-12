@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.parquet binary
 *.png binary
+*.bat text eol=crlf
+*.ico binary

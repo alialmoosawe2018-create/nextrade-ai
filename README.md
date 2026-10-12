@@ -1,48 +1,48 @@
-# NexTrade AI — Nasdaq ORB research engine (phase A1)
+# NexTrade AI — Nasdaq research & paper-trading platform
 
-Private research project. **Simulation only. Real trading is locked in code.**
-Nothing in this repository is a trading recommendation or a claim of profitability.
+Private, local platform. **Simulation / paper trading only. Real trading is locked in code.**
+Nothing here is a trading recommendation or a claim of profitability.
 
-## What works now (A1)
-- Deterministic Opening Range Breakout + Retest strategy on M1 bars (rules: `docs/TRADING_RULES.md`)
-- Independent risk engine (sizing from the broker's contract spec, daily loss lockout, kill switch, …)
-- Paper broker (bid/ask, slippage, commission, conservative same-bar stop/target)
-- Backtest runner with full journal, metrics with confidence intervals, cost sensitivity ×1/×1.5/×2
-- Chronological dev/validation/holdout split with a holdout-reuse ledger
-- Data-quality checks; HTML report with charts for visual review
-- MOCK demo (synthetic data, labelled everywhere)
+## What it does
+- **MT5 accounts (read-only):** add any MT5 broker (server + account number), connect with the
+  password typed at connect time (never stored) or attach to the MT5 already logged in on this PC.
+  Discovers the broker's Nasdaq symbol (US100 / NAS100 / USTEC …) and reads its contract spec.
+- **Broker server time is measured, not assumed:** live from the newest tick, and from history by
+  checking which timezone rule puts the 09:30 New York volatility jump at the NYSE open.
+- **Analysis:** ORB + Retest backtest on the broker's own M1 history (background job), costs ×1/×1.5/×2,
+  dev / validation / holdout (holdout runs once), data-quality report, visual HTML report.
+- **Live monitor:** the same engine as the backtest, on live completed bars → risk engine → paper broker.
+  Late/stale signals are rejected. Every decision is journaled under `data/live/`.
+- **MOCK broker:** synthetic data (labelled MOCK everywhere) to try the whole platform without MT5.
 
-Not yet: MT5 connection (A2), web UI (B), AI council (C). See `docs/ROADMAP.md`.
+## Start (Windows)
+Double-click **`start-platform.bat`**. First run creates the Python environment, installs packages and
+builds the interface. It then opens http://localhost:3100. Close the two windows to stop.
 
-## Setup (Windows, PowerShell, from the project folder)
+Requirements: Python 3.12 (`py -3.12`), Node.js 20.9+, and for real accounts the broker's MT5 terminal
+installed on this PC (the official `MetaTrader5` Python package is Windows-only).
+
+## First use
+1. **حسابات MT5 / MT5 accounts** → add your account (server name exactly as in MT5's login window,
+   account number). Prefer the **investor (read-only) password** and a **demo** account first.
+   Or add the MOCK broker to try everything.
+2. Connect → choose the Nasdaq symbol → compare the shown spec with MT5's *Specification* window.
+3. **الإعدادات / Settings → Risk:** set `max_spread` (every trade is rejected until it is set).
+4. **التحليل / Analysis:** run on `dev` first. The first run also determines the broker's server time.
+5. **المراقبة الحية / Live:** start the monitor during (or before) the US session.
+
+Check your broker's client agreement about third-party software before connecting a real account.
+
+## Developer commands
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-```
-
-## Run the tests
-```powershell
-cd backend
-..\.venv\Scripts\python.exe -m pytest
-cd ..
+# backend tests (no broker, no keys needed)
+cd backend; ..\.venv\Scripts\python.exe -m pytest; cd ..
+# mutation check: every guard must be caught by a test
 .\.venv\Scripts\python.exe tools\mutate.py
+# frontend checks
+cd frontend; npx tsc --noEmit; npx eslint src; npm run build; cd ..
+# CLI MOCK demo (no UI)
+cd backend; ..\.venv\Scripts\python.exe -m app.cli demo; cd ..
 ```
 
-## MOCK pipeline demo
-```powershell
-cd backend
-..\.venv\Scripts\python.exe -m app.cli demo
-```
-Writes `data\runs\<stamp>-mock-demo-<hash>\report.html`. Its numbers are synthetic and mean nothing.
-
-## Real data (after phase A2 fills `config/instrument.yaml` from MT5)
-```powershell
-cd backend
-..\.venv\Scripts\python.exe -m app.cli quality  --data ..\data\NAS100_M1.parquet --start 2025-01-02 --end 2026-09-30
-..\.venv\Scripts\python.exe -m app.cli backtest --data ..\data\NAS100_M1.parquet --start 2025-01-02 --end 2026-09-30 --split dev
-```
-`backtest` refuses to run while the instrument spec is unverified. `--split holdout` runs once.
-
-## Configuration
-`config/strategy_orb.yaml`, `config/risk.yaml`, `config/costs.yaml`, `config/instrument.yaml`.
-Strategy distances are in price units (index points). Risk caps are enforced in code.
+Docs: `docs/TRADING_RULES.md` · `docs/ARCHITECTURE.md` · `docs/SECURITY.md` · `docs/ROADMAP.md`.

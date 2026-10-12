@@ -109,3 +109,11 @@ def test_summary_statistics():
     assert s["win_rate"] == pytest.approx(0.5)
     assert s["profit_factor"] == pytest.approx(4.0 / 2.0)
     assert s["r"]["ci95_r"][0] < 0.5 < s["r"]["ci95_r"][1]
+
+
+def test_single_trade_summary_is_json_safe():
+    import json
+    from tests.test_metrics_helpers import fake_trades
+    s = summarize(fake_trades([1.5]), 10_000, 1)
+    json.dumps(s, allow_nan=False)  # raises if any NaN/inf slipped through
+    assert s["r"]["sd_r"] is None and s["r"]["ci95_r"] is None

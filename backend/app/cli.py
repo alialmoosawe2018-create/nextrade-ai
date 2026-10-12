@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from dataclasses import asdict
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -24,7 +23,7 @@ from app.core.config import (CostModel, InstrumentSpec, OrbConfig, RiskConfig, S
 from app.core.models import DataSource
 from app.market import quality
 from app.market.providers import MockProvider, ParquetProvider
-from app.reporting.html import render
+from app.reporting.runs import write_run
 from app.reporting.metrics import summarize
 from app.services.backtest import BacktestResult, run_backtest
 from app.services.splits import SPLITS, HoldoutLedger, chronological_split, data_fingerprint
@@ -46,31 +45,8 @@ def _configs() -> tuple[OrbConfig, RiskConfig, CostModel, InstrumentSpec]:
             InstrumentSpec(**load_yaml(CONFIG / "instrument.yaml")))
 
 
-def _code_version() -> dict:
-    """Git commit + whether the working tree had uncommitted changes when the run was made."""
-    def git(*a):
-        r = subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True)
-        return r.stdout.strip() if r.returncode == 0 else None
-    status = git("status", "--porcelain")
-    return {"commit": git("rev-parse", "HEAD"), "dirty": bool(status) if status is not None else None}
-
-
-def _write_run(tag: str, result: BacktestResult, bars: pd.DataFrame, sessions, summary: dict,
-               configs: dict, extra: dict | None = None) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out = DATA / "runs" / f"{stamp}-{tag}-{result.config_hash[:8]}"
-    out.mkdir(parents=True, exist_ok=False)
-    meta = {"tag": tag, "created_utc": stamp, "config_hash": result.config_hash,
-            "data_source": result.data_source.value, "simulated": True, "code": _code_version(),
-            "sessions": [str(sessions[0].day), str(sessions[-1].day)] if sessions else [],
-            "configs": configs, **(extra or {})}
-    (out / "run.json").write_text(json.dumps(meta, indent=2, default=str), encoding="utf-8")
-    (out / "summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
-    pd.DataFrame([asdict(t) for t in result.trades]).to_csv(out / "trades.csv", index=False)
-    pd.DataFrame(result.journal).to_csv(out / "journal.csv", index=False)
-    title = f"NexTrade AI — {tag} ({result.data_source.value})"
-    (out / "report.html").write_text(render(result, bars, sessions, summary, title), encoding="utf-8")
-    return out
+def _write_run(tag, result, bars, sessions, summary, configs, extra=None) -> Path:
+    return write_run(DATA / "runs", tag, result, bars, sessions, summary, configs, extra)
 
 
 def cmd_demo(args) -> int:

@@ -1,15 +1,13 @@
-# Roadmap (order agreed with the owner, 2026-10-12)
+# Roadmap
 
-Rules and target architecture come from the NexTrade AI project brief. The phase order was changed
-deliberately: the question "does this strategy have an edge after costs on the broker's own data?"
-is answered **before** any UI or AI work.
+Rules and target architecture come from the NexTrade AI project brief (owner's constitution).
 
-| Phase | Content | Exit condition |
+| Phase | Content | Status |
 |---|---|---|
-| **A1** ✅ | Repo, clock, ORB+Retest, risk engine, paper broker, backtest runner, metrics, quality checks, MOCK demo, HTML review report, tests + mutation check | All tests green; every mutation killed |
-| **A2** | Read-only MT5 connection; `instrument.yaml` from `symbol_info`; history depth; data download; quality report; spread by minute from the open; daily tick recording; news-day filter; dev/validation backtests | Owner reviews 5 days visually against MT5 |
-| **Gate 1** | Holdout run once. Criteria written **before** it is opened: positive net expectancy after costs, holds at costs ×1.5, drawdown acceptable to the owner, adequate sample | **Owner's decision** |
-| B | FastAPI + Next.js UI (Arabic RTL / English, dark, responsive): Overview, Backtesting, Journal, Risk first | — |
-| C | AI council in shadow mode: one provider first, structured validated output, compare strategy-only vs +1 model vs council on the same candidates; key metric = mean R of rejected candidates with its CI | Months of shadow data |
-| D | MT5 demo: read-only first, then demo orders after paper tests. Real trading stays locked | — |
-| E | Hardening: auth, secrets, TLS, monitoring, backups — before any network exposure | — |
+| **A1** | Clock, ORB+Retest, risk engine, paper broker, backtest, metrics, quality, splits/holdout ledger, MOCK demo, HTML report, tests + mutation check | ✅ 2026-10-12 |
+| **Platform (B-lite)** | Owner request 2026-10-12: log in to any MT5 broker from inside the platform. FastAPI + Next.js (Arabic RTL / English, dark): Overview, MT5 accounts (read-only gateway, investor password advised), Live monitor (same engine as backtest, paper only), Analysis (background jobs on broker history, server-time detection), Settings | ✅ built; real-terminal connection not yet exercised |
+| **A2 on real data** | Owner connects a demo account → symbol + spec verified against MT5 → server time decided from history → dev/validation runs → visual review of 5 days vs MT5 | waiting for owner |
+| **Gate 1** | Holdout run once; criteria written before it is opened (positive net expectancy after costs, holds at ×1.5, acceptable drawdown, adequate sample) | **owner's decision** |
+| C | AI council in shadow mode: one provider first, validated structured output, strategy-only vs +1 model vs council; key metric = mean R of REJECTED candidates with CI | after Gate 1 |
+| D | Demo orders (still never real) after paper results hold | later |
+| E | Hardening: auth, secrets store, TLS, monitoring, backups — before any network exposure | later |

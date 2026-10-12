@@ -1,4 +1,4 @@
-"""Backtest runner: replays M1 bars through strategy -> risk -> paper broker.
+"""Per-session runner shared by the backtest and the live monitor, plus the backtest loop.
 
 Per bar t, the order is fixed and mirrors live operation:
   1. fill the order approved at the close of bar t-1 (at bar t's open),
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,98 @@ from app.risk.engine import AccountState, MarketSnapshot, evaluate
 from app.strategy.orb import OrbRetestDay
 
 BAR_COLUMNS = ("time", "open", "high", "low", "close", "spread")
+
+LogFn = Callable[[dict], None]
+
+
+class SessionRunner:
+    """Runs one session: strategy -> risk -> paper broker, journaling every decision."""
+
+    def __init__(self, session: Session, broker: PaperBroker, spec: InstrumentSpec, orb_cfg: OrbConfig,
+                 risk_cfg: RiskConfig, costs: CostModel, chash: str, data_source: DataSource,
+                 log: LogFn, on_trade: Callable[[ClosedTrade], None],
+                 now_fn: Callable[[Bar], pd.Timestamp] | None = None) -> None:
+        self.s = session
+        self.broker = broker
+        self.spec = spec
+        self.orb_cfg = orb_cfg
+        self.risk_cfg = risk_cfg
+        self.costs = costs
+        self.chash = chash
+        self.source = data_source
+        self._log = log
+        self._on_trade = on_trade
+        # Backtest: "now" is the bar close. Live: the real clock (so stale data is caught).
+        self._now = now_fn or (lambda b: b.close_time)
+        self.strategy = OrbRetestDay(orb_cfg, session, lambda b: spread_price(b, spec.point, costs),
+                                     chash, data_source)
+        self.day_start_equity = broker.balance
+        self.realized_today = 0.0
+        self.trades_today = 0
+        self.pending = None
+        self.last_bar: Bar | None = None
+        self.session_exit = session.close_utc - pd.Timedelta(minutes=orb_cfg.flat_before_close_minutes)
+        self.finished = False
+
+    def log(self, time, stage: str, status: str, reasons, **extra) -> None:
+        self._log({"session_day": self.s.day, "time": time, "stage": stage, "status": status,
+                   "reasons": list(reasons), "config_hash": self.chash, "data_source": self.source.value,
+                   "simulated": True, **extra})
+
+    def _closed(self, t: ClosedTrade) -> None:
+        self.realized_today += t.net_pnl
+        self._on_trade(t)
+        self.log(t.exit_time, "EXECUTION", "CLOSED", [t.exit_reason], candidate_id=t.candidate_id,
+                 net_pnl=t.net_pnl, r_multiple=t.r_multiple)
+
+    def on_bar(self, bar: Bar) -> None:
+        self.last_bar = bar
+        if self.pending is not None:
+            cand, decision = self.pending
+            self.pending = None
+            time_exit = cand.signal_time + pd.Timedelta(minutes=self.orb_cfg.max_hold_minutes)
+            deadline, why = ((time_exit, "TIME_EXIT") if time_exit <= self.session_exit
+                             else (self.session_exit, "SESSION_END"))
+            try:
+                pos = self.broker.open(cand, decision, bar, deadline, why)
+                self.log(bar.time, "EXECUTION", "FILLED", [], candidate_id=cand.id,
+                         entry_price=pos.entry_price, volume=pos.volume)
+            except OrderRejected as e:
+                self.log(bar.time, "EXECUTION", "FILL_REJECTED", [e.reason], candidate_id=cand.id, **e.details)
+
+        for t in self.broker.on_bar(bar):
+            self._closed(t)
+
+        for ev in self.strategy.on_bar(bar):
+            if ev.kind != "SIGNAL":
+                self.log(ev.time, "STRATEGY", "NO_SIGNAL", [ev.reason], **ev.details)
+                continue
+            cand = ev.candidate
+            account = AccountState(AccountMode.SIMULATION, self.broker.balance, self.day_start_equity,
+                                   self.realized_today, self.trades_today, len(self.broker.positions))
+            market = MarketSnapshot(now=self._now(bar), last_bar_close=bar.close_time,
+                                    spread=cand.spread_at_signal)
+            decision = evaluate(cand, account, market, self.spec, self.risk_cfg, self.costs)
+            self.log(ev.time, "RISK", "APPROVED" if decision.approved else "REJECTED", decision.reasons,
+                     candidate_id=cand.id, direction=cand.direction.name, entry_ref=cand.entry_ref,
+                     stop=cand.stop, target=cand.target, volume=decision.volume, rationale=cand.rationale,
+                     or_high=cand.or_high, or_low=cand.or_low)
+            if decision.approved:
+                self.pending = (cand, decision)
+                self.trades_today += 1
+
+    def finish(self) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        if self.pending is not None:
+            self.log(None, "EXECUTION", "FILL_REJECTED", ["ENTRY_BAR_MISSING"], candidate_id=self.pending[0].id)
+            self.pending = None
+        for ev in self.strategy.finish():
+            self.log(ev.time, "STRATEGY", "NO_SIGNAL", [ev.reason], **ev.details)
+        if self.broker.positions and self.last_bar is not None:
+            for t in self.broker.close_all(self.last_bar, "DATA_END"):
+                self._closed(t)
 
 
 @dataclass
@@ -42,7 +135,7 @@ def _bars_for_session(df: pd.DataFrame, times: np.ndarray, s: Session) -> pd.Dat
     return df.iloc[lo:hi]
 
 
-def _iter_bars(day: pd.DataFrame):
+def iter_bars(day: pd.DataFrame):
     for t, o, h, l, c, sp in zip(day["time"], day["open"], day["high"], day["low"],
                                  day["close"], day["spread"]):
         yield Bar(time=pd.Timestamp(t), open=float(o), high=float(h), low=float(l),
@@ -72,71 +165,13 @@ def run_backtest(
     chash = config_hash(orb_cfg, risk_cfg, costs, spec)
     broker = PaperBroker(spec, costs, starting_balance, data_source)
     result = BacktestResult(chash, data_source, [s.day for s in sessions], starting_balance, starting_balance)
-    sp_fn = lambda b: spread_price(b, spec.point, costs)  # noqa: E731
-
-    def log(s: Session, time, stage: str, status: str, reasons, **extra) -> None:
-        result.journal.append({
-            "session_day": s.day, "time": time, "stage": stage, "status": status,
-            "reasons": list(reasons), "config_hash": chash, "data_source": data_source.value,
-            "simulated": True, **extra,
-        })
 
     for s in sessions:
-        day = _bars_for_session(df, times, s)
-        strat = OrbRetestDay(orb_cfg, s, sp_fn, chash, data_source)
-        day_start_equity = broker.balance
-        realized_today = 0.0
-        trades_today = 0
-        pending = None
-        last_bar: Bar | None = None
-        session_exit = s.close_utc - pd.Timedelta(minutes=orb_cfg.flat_before_close_minutes)
-
-        for bar in _iter_bars(day):
-            last_bar = bar
-            if pending is not None:
-                cand, decision = pending
-                pending = None
-                time_exit = cand.signal_time + pd.Timedelta(minutes=orb_cfg.max_hold_minutes)
-                deadline, why = (time_exit, "TIME_EXIT") if time_exit <= session_exit else (session_exit, "SESSION_END")
-                try:
-                    pos = broker.open(cand, decision, bar, deadline, why)
-                    log(s, bar.time, "EXECUTION", "FILLED", [], candidate_id=cand.id,
-                        entry_price=pos.entry_price, volume=pos.volume)
-                except OrderRejected as e:
-                    log(s, bar.time, "EXECUTION", "FILL_REJECTED", [e.reason], candidate_id=cand.id, **e.details)
-
-            for t in broker.on_bar(bar):
-                realized_today += t.net_pnl
-                result.trades.append(t)
-                log(s, t.exit_time, "EXECUTION", "CLOSED", [t.exit_reason], candidate_id=t.candidate_id,
-                    net_pnl=t.net_pnl, r_multiple=t.r_multiple)
-
-            for ev in strat.on_bar(bar):
-                if ev.kind != "SIGNAL":
-                    log(s, ev.time, "STRATEGY", "NO_SIGNAL", [ev.reason], **ev.details)
-                    continue
-                cand = ev.candidate
-                account = AccountState(AccountMode.SIMULATION, broker.balance, day_start_equity,
-                                       realized_today, trades_today, len(broker.positions))
-                market = MarketSnapshot(now=ev.time, last_bar_close=bar.close_time, spread=cand.spread_at_signal)
-                decision = evaluate(cand, account, market, spec, risk_cfg, costs)
-                log(s, ev.time, "RISK", "APPROVED" if decision.approved else "REJECTED", decision.reasons,
-                    candidate_id=cand.id, direction=cand.direction.name, entry_ref=cand.entry_ref,
-                    stop=cand.stop, target=cand.target, volume=decision.volume, rationale=cand.rationale,
-                    or_high=cand.or_high, or_low=cand.or_low)
-                if decision.approved:
-                    pending = (cand, decision)
-                    trades_today += 1
-
-        if pending is not None:
-            log(s, None, "EXECUTION", "FILL_REJECTED", ["ENTRY_BAR_MISSING"], candidate_id=pending[0].id)
-        for ev in strat.finish():
-            log(s, ev.time, "STRATEGY", "NO_SIGNAL", [ev.reason], **ev.details)
-        if broker.positions and last_bar is not None:
-            for t in broker.close_all(last_bar, "DATA_END"):
-                result.trades.append(t)
-                log(s, t.exit_time, "EXECUTION", "CLOSED", ["DATA_END"], candidate_id=t.candidate_id,
-                    net_pnl=t.net_pnl, r_multiple=t.r_multiple)
+        runner = SessionRunner(s, broker, spec, orb_cfg, risk_cfg, costs, chash, data_source,
+                               log=result.journal.append, on_trade=result.trades.append)
+        for bar in iter_bars(_bars_for_session(df, times, s)):
+            runner.on_bar(bar)
+        runner.finish()
 
     result.ending_balance = broker.balance
     return result

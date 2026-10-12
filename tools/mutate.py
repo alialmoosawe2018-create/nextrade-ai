@@ -66,11 +66,17 @@ MUTATIONS: list[tuple[str, str, list[tuple[str, str]]]] = [
     # --- safety / clock / runner / reporting / quality
     ("safety-real-enabled", "app/core/safety.py", [("REAL_TRADING_ENABLED: Final[bool] = False", "REAL_TRADING_ENABLED: Final[bool] = True")]),
     ("clock-no-early-close", "app/core/clock.py", [("early_close=minutes < REGULAR_SESSION_MINUTES", "early_close=False")]),
-    ("runner-ignores-risk", "app/services/backtest.py", [("                if decision.approved:\n", "                if True:\n")]),
-    ("runner-always-session-exit", "app/services/backtest.py", [("(time_exit, \"TIME_EXIT\") if time_exit <= session_exit else (session_exit, \"SESSION_END\")", "(session_exit, \"SESSION_END\")")]),
+    ("runner-ignores-risk", "app/services/backtest.py", [("            if decision.approved:\n", "            if True:\n")]),
+    ("runner-always-session-exit", "app/services/backtest.py", [("((time_exit, \"TIME_EXIT\") if time_exit <= self.session_exit\n                             else (self.session_exit, \"SESSION_END\"))", "(self.session_exit, \"SESSION_END\")")]),
+    ("runner-live-clock-ignored", "app/services/backtest.py", [("market = MarketSnapshot(now=self._now(bar),", "market = MarketSnapshot(now=bar.close_time,")]),
     # runner-no-trade-count is intentionally absent: with at most one signal per day the runner can
     # never reach a second trade, so no test can observe that counter. TRADE_LIMIT itself is tested
     # in the risk engine (test_trade_and_position_limits).
+    ("gateway-allows-orders", "app/brokers/mt5_gateway.py", [("\"symbols_get\", \"symbol_info\", \"symbol_select\", \"symbol_info_tick\", \"copy_rates_range\",", "\"symbols_get\", \"symbol_info\", \"symbol_select\", \"symbol_info_tick\", \"copy_rates_range\", \"order_send\",")]),
+    ("gateway-real-not-flagged", "app/brokers/mt5_gateway.py", [("        if mode == \"REAL\":\n", "        if False:\n")]),
+    ("api-profile-accepts-extra", "app/api/main.py", [("    model_config = ConfigDict(extra=\"forbid\")  # a \"password\" key is rejected, never stored", "    model_config = ConfigDict(extra=\"ignore\")")]),
+    ("tz-choose-ignores-decisive-days", "app/brokers/server_time.py", [("        if len(decisive) < min_decisive_days or b <= r or b < 2 * len(decisive) / 3:", "        if False:")]),
+    ("live-backfill-trades-stale", "app/services/live.py", [("now_fn=lambda _b: pd.Timestamp(self.clock())", "now_fn=None")]),
     ("metrics-fake-zero", "app/reporting/metrics.py", [("return {\"status\": \"INSUFFICIENT DATA\"", "return {\"net_pnl\": 0.0, \"status\": \"INSUFFICIENT DATA\"")]),
     ("quality-no-dup-check", "app/market/quality.py", [("r.duplicates = int(t.duplicated().sum())", "r.duplicates = 0")]),
     ("quality-clean-keeps-bad", "app/market/quality.py", [("out = out[~bad].reset_index(drop=True)", "out = out.reset_index(drop=True)")]),
