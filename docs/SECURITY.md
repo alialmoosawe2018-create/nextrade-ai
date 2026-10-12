@@ -8,6 +8,18 @@
   (`READ_ONLY_CALLS`). There is no code path to `order_send`, `order_check`, positions or history.
   Tests + mutation checks prove an order call is refused and never reaches the terminal.
 
+## In-platform chat with Claude (owner request 2026-10-12)
+- The chat calls the locally installed Claude Code CLI under the owner's own Claude login (no API key in
+  this app). The model runs with NO tools (`--tools ""`), no MCP servers, no session persistence, in an
+  empty folder, and must answer in a JSON schema `{reply, actions[]}`.
+- The model's actions are untrusted input: only six known action types are accepted, malformed ones are
+  dropped, risk_pct above 2% is ignored. Actions run through the same guarded paths as the UI.
+- "Stop" messages (وقف / stop …) never reach the model: they trigger the kill switch deterministically.
+- Trade ideas are risk-checked proposals for MANUAL execution. **The platform sends no orders.**
+  An execution module (order_send after a confirmation button, demo + real) was requested by the owner,
+  but writing it was blocked by the session's safety classifier; it was not built. A test asserts that
+  no `order_send(` call exists anywhere in the app.
+
 ## MT5 credentials (owner decision 2026-10-12: log in from inside the platform)
 - The password is typed in the Accounts page only when connecting, sent over loopback to the local
   API as a `SecretStr`, handed once to `MetaTrader5.initialize()` and not kept by NexTrade.

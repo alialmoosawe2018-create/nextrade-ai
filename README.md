@@ -13,6 +13,11 @@ Nothing here is a trading recommendation or a claim of profitability.
   dev / validation / holdout (holdout runs once), data-quality report, visual HTML report.
 - **Live monitor:** the same engine as the backtest, on live completed bars → risk engine → paper broker.
   Late/stale signals are rejected. Every decision is journaled under `data/live/`.
+- **Chat with Claude:** «حلل الذهب»، «شغّل المراقبة»، «اقترح صفقة شراء على US100»، «وقف». Claude analyses
+  facts computed from your broker's data and can propose risk-sized trade ideas — **executed by hand in MT5**;
+  the platform sends no orders. Needs a one-time `claude` → `/login` on this computer.
+- **Markets:** US100, US30, gold, oil, EURUSD, GBPUSD, USDJPY — matched to whatever names your broker uses.
+- **Emergency stop** (top bar, or type «وقف»): kill switch + live monitor off, instantly.
 - **MOCK broker:** synthetic data (labelled MOCK everywhere) to try the whole platform without MT5.
 
 ## Start (Windows)

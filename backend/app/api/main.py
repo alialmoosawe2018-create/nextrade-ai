@@ -27,6 +27,7 @@ from app.core.safety import REAL_TRADING_ENABLED
 from app.services.analysis import AnalysisBlocked, run_analysis
 from app.services.live import LiveMonitor
 from app.services.splits import SPLITS
+from app.api.assistant import register_assistant
 from app.storage.store import SETTINGS_MODELS, Profile, ProfileStore, SettingsStore
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -50,6 +51,8 @@ class AppState:
         self.lock = threading.RLock()
         self.errors: list[dict] = []
         self.jobs: dict[str, dict] = {}
+        self.ideas: dict[str, dict] = {}
+        self.chat = None
 
     def record_error(self, where: str, msg: str) -> None:
         self.errors.append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "where": where, "error": msg})
@@ -287,17 +290,17 @@ def create_app(data_dir: Path | None = None, mt5_factory=None, mock_factory=None
                                                      bars["low"], bars["close"])]}
 
     # ------------------------------------------------------------- analysis
-    @app.post("/api/analysis/run", status_code=202)
-    def analysis(body: AnalysisIn):
+    def start_analysis(gw: Mt5Gateway, spec: InstrumentSpec, start: date, end: date, split: str,
+                       allow_holdout_reuse: bool = False) -> dict:
         """Starts a background job (history download can take minutes); poll /api/analysis/jobs/{id}."""
-        gw, spec = need_symbol()
+        body = AnalysisIn(start=start, end=end, split=split, allow_holdout_reuse=allow_holdout_reuse)
         if body.end < body.start:
             raise HTTPException(422, detail="end must be after start")
         with st.lock:
             if any(j["status"] == "RUNNING" for j in st.jobs.values()):
                 raise HTTPException(409, detail={"code": "ANALYSIS_BUSY", "message": "Another analysis is running"})
             job_id = uuid.uuid4().hex[:12]
-            job = {"job_id": job_id, "status": "RUNNING", "params": body.model_dump(mode="json"),
+            job = {"job_id": job_id, "status": "RUNNING", "params": {**body.model_dump(mode="json"), "symbol": spec.symbol},
                    "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                    "finished_at": None, "result": None, "error": None}
             st.jobs[job_id] = job
@@ -326,6 +329,11 @@ def create_app(data_dir: Path | None = None, mt5_factory=None, mock_factory=None
         threading.Thread(target=work, name=f"analysis-{job_id}", daemon=True).start()
         return {"job_id": job_id, "status": "RUNNING"}
 
+    @app.post("/api/analysis/run", status_code=202)
+    def analysis(body: AnalysisIn):
+        gw, spec = need_symbol()
+        return start_analysis(gw, spec, body.start, body.end, body.split, body.allow_holdout_reuse)
+
     @app.get("/api/analysis/jobs/{job_id}")
     def analysis_job(job_id: str):
         job = st.jobs.get(job_id)
@@ -349,9 +357,11 @@ def create_app(data_dir: Path | None = None, mt5_factory=None, mock_factory=None
         return out
 
     # ----------------------------------------------------------------- live
-    @app.post("/api/live/start")
-    def live_start():
+    def start_live() -> dict:
         gw, spec = need_symbol()
+        if not st.settings.get("risk").trading_enabled:
+            raise HTTPException(409, detail={"code": "TRADING_DISABLED",
+                                             "message": "Kill switch is on — release it first"})
         if st.profile.server_tz is None:
             raise HTTPException(409, detail={"code": "SERVER_TIME_UNDETERMINED",
                                              "message": "Run an analysis once so the server time rule is determined"})
@@ -369,6 +379,10 @@ def create_app(data_dir: Path | None = None, mt5_factory=None, mock_factory=None
                                      st.data_dir / "live", st.clock, poll_seconds=2.0)
             st.monitor.start()
         return st.monitor.snapshot()
+
+    @app.post("/api/live/start")
+    def live_start():
+        return start_live()
 
     @app.post("/api/live/stop")
     def live_stop():
@@ -413,6 +427,8 @@ def create_app(data_dir: Path | None = None, mt5_factory=None, mock_factory=None
     def splits():
         return {"splits": list(SPLITS) + ["all"]}
 
+    register_assistant(app, st, need_gateway=need_gateway, need_symbol=need_symbol, start_live=start_live,
+                       start_analysis=start_analysis, stop_monitor=lambda: _stop_monitor(st))
     return app
 
 

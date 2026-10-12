@@ -12,10 +12,33 @@ import { Badge, SourceBadge } from "@/components/ui";
 const NAV: { href: string; key: Key; icon: string }[] = [
   { href: "/", key: "navOverview", icon: "◧" },
   { href: "/accounts", key: "navAccounts", icon: "⚿" },
+  { href: "/chat", key: "navChat", icon: "✦" },
   { href: "/live", key: "navLive", icon: "◉" },
   { href: "/analysis", key: "navAnalysis", icon: "▤" },
   { href: "/settings", key: "navSettings", icon: "⚙" },
 ];
+
+function EmergencyStop() {
+  const { t } = useI18n();
+  const { data, reload } = usePoll<{ values: { risk: { trading_enabled: boolean } } }>("/api/settings", 5000);
+  const on = data && !data.values.risk.trading_enabled;
+  async function stop() {
+    await fetch("/api/kill", { method: "POST" });
+    reload();
+  }
+  async function release() {
+    if (!window.confirm(t("confirmRelease"))) return;
+    await fetch("/api/kill/release", { method: "POST" });
+    reload();
+  }
+  return on ? (
+    <button onClick={release} className="rounded-md border border-bad bg-bad/15 px-2 py-1 text-xs font-semibold text-bad">
+      {t("killOn")} · {t("release")}
+    </button>
+  ) : (
+    <button onClick={stop} className="rounded-md bg-bad px-2 py-1 text-xs font-semibold text-white">{t("emergencyStop")}</button>
+  );
+}
 
 export function Shell({ children }: { children: ReactNode }) {
   const { t, lang, setLang } = useI18n();
@@ -68,6 +91,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <Badge>○ {t("notConnected")}</Badge>
           )}
           <div className="ms-auto flex items-center gap-2">
+            <EmergencyStop />
             <button className="rounded-md border border-line px-2 py-1 text-xs" onClick={() => setLang(lang === "ar" ? "en" : "ar")}>
               {lang === "ar" ? "English" : "العربية"}
             </button>
@@ -79,7 +103,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-4 md:pb-8">{children}</main>
 
-        <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-line bg-panel md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-line bg-panel md:hidden">
           {NAV.map((n) => (
             <Link key={n.href} href={n.href} className={`flex flex-col items-center py-2 text-[11px] ${active(n.href) ? "text-accent" : "text-muted"}`}>
               <span aria-hidden className="text-base">{n.icon}</span>

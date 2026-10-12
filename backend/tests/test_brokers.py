@@ -157,7 +157,7 @@ def test_symbol_discovery_and_spec():
     g = connected()
     syms = g.find_symbols(nasdaq_only=True)
     assert [s["name"] for s in syms] == ["US100.mock"] and syms[0]["nasdaq_candidate"]
-    assert len(g.find_symbols()) == 2
+    assert {s["name"] for s in g.find_symbols()} == {"US100.mock", "US30.mock", "XAUUSD.mock", "USOIL.mock", "EURUSD.mock"}
     spec, raw = g.instrument_spec("US100.mock")
     assert spec.missing_fields() == [] and spec.source.value == "MT5_SYMBOL_INFO"
     assert (spec.tick_size, spec.tick_value, spec.volume_step) == (0.01, 0.01, 0.1)

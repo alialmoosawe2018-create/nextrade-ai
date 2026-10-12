@@ -6,12 +6,15 @@ import { Alert, Badge, Card, Num, Row, SourceBadge } from "@/components/ui";
 import { usePoll, type Health, type LiveSnapshot, type RunRow } from "@/lib/api";
 import { reasonLabel, useI18n } from "@/lib/i18n";
 
+type WatchRow = { asset: string; name_ar: string; name_en: string; symbol: string | null; bid: number | null; ask: number | null; spread: number | null; source: string };
+
 export default function Overview() {
   const { t, lang } = useI18n();
   const { data: health, error } = usePoll<Health>("/api/health", 5000);
   const { data: live } = usePoll<LiveSnapshot>("/api/live/status", 5000);
   const { data: runs } = usePoll<RunRow[]>("/api/analysis/runs", 15000);
   const conn = health?.connection;
+  const { data: watch } = usePoll<WatchRow[]>(conn?.connected ? "/api/watchlist" : null, 5000);
 
   if (error) return <Alert tone="bad">{t("backendDown")}</Alert>;
   if (!health) return <p className="text-muted">{t("loading")}</p>;
@@ -53,6 +56,24 @@ export default function Overview() {
         )}
         <p className="mt-3 text-xs text-muted">{t("simulatedNote")}</p>
       </Card>
+
+      {watch && (
+        <Card title={t("watchlist")} className="md:col-span-2" actions={<SourceBadge source={watch[0]?.source} />}>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {watch.map((w) => (
+              <div key={w.asset} className="rounded-lg border border-line p-2 text-sm">
+                <div className="flex items-center justify-between gap-2"><span className="font-medium">{lang === "ar" ? w.name_ar : w.name_en}</span><span className="num text-xs text-muted">{w.symbol ?? "—"}</span></div>
+                {w.symbol ? (
+                  <div className="num mt-1 text-xs">
+                    <Num v={w.bid} d={w.bid != null && w.bid < 10 ? 5 : 2} /> / <Num v={w.ask} d={w.ask != null && w.ask < 10 ? 5 : 2} />
+                    <span className="ms-2 text-muted">sp <Num v={w.spread} d={w.spread != null && w.spread < 0.1 ? 5 : 2} /></span>
+                  </div>
+                ) : <div className="mt-1 text-xs text-muted">{lang === "ar" ? "غير متوفر عند الوسيط" : "not at this broker"}</div>}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card title={t("recentRuns")} className="md:col-span-2">
         {runs && runs.length > 0 ? (
