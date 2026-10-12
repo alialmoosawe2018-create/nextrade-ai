@@ -192,3 +192,12 @@ def test_cli_runner_maps_not_logged_in(monkeypatch, tmp_path):
 def test_no_order_sending_code_exists_in_the_app():
     offenders = [str(p) for p in APP_DIR.rglob("*.py") if "order_send(" in p.read_text(encoding="utf-8")]
     assert offenders == []
+
+
+def test_finds_claude_inside_the_packaged_app_folder(tmp_path, monkeypatch):
+    exe = tmp_path / "Local" / "Packages" / "Claude_abc123" / "LocalCache" / "Roaming" / "Claude" / "claude-code" / "9.9.9" / "h" / "claude.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))   # outside the app: no redirected view
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    assert chat_mod.find_claude_exe() == str(exe)

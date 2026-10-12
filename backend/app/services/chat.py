@@ -58,6 +58,10 @@ The owner writes in Iraqi Arabic (sometimes English). Reply in the owner's langu
 What you receive each turn: CONTEXT (JSON facts computed by the platform from the owner's broker) and the
 recent conversation. Use ONLY those facts. If a number you need is not in CONTEXT, say it is not available.
 Never invent prices, levels, news, statistics or results.
+CONTEXT is the CURRENT state. Earlier messages may be out of date (e.g. a stop that was later released):
+for anything about the present (kill switch, monitor status, prices) trust CONTEXT, not the conversation.
+Format: plain text only — no markdown (no **, no #). Short lines; use "-" for lists.
+Write every text field (reply AND each action's rationale) in the owner's language.
 
 Hard rules:
 - The platform does NOT send orders to the broker. A trade from you is a TRADE IDEA (action propose_trade):
@@ -84,11 +88,19 @@ class ChatUnavailable(Exception):
 
 
 def find_claude_exe() -> str | None:
-    """Newest Claude Code executable on this machine (native install), else `claude` on PATH."""
-    base = Path(os.environ.get("APPDATA", "")) / "Claude" / "claude-code"
-    exes = sorted(glob.glob(str(base / "**" / "claude.exe"), recursive=True), key=os.path.getmtime, reverse=True)
+    """Newest Claude Code executable on this machine, else `claude` on PATH.
+
+    The Claude desktop app is a packaged (MSIX) Windows app: inside the app, %APPDATA%\\Claude is a
+    redirected view of %LOCALAPPDATA%\\Packages\\Claude_*\\LocalCache\\Roaming\\Claude. A process started
+    outside the app (e.g. start-platform.bat) only sees the real Packages path, so both are searched.
+    """
+    roots = [Path(os.environ.get("APPDATA", "")) / "Claude" / "claude-code"]
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    roots += [Path(p) / "LocalCache" / "Roaming" / "Claude" / "claude-code"
+              for p in glob.glob(str(local / "Packages" / "Claude_*"))]
+    exes = [e for r in roots for e in glob.glob(str(r / "**" / "claude.exe"), recursive=True)]
     if exes:
-        return exes[0]
+        return max(exes, key=os.path.getmtime)
     return shutil.which("claude")
 
 
