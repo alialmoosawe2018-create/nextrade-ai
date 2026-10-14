@@ -20,6 +20,7 @@ from app.core.config import CostModel, InstrumentSpec, OrbConfig, RiskConfig, co
 from app.core.models import AccountMode, Bar, DataSource, Session
 from app.execution.costs import spread_price
 from app.execution.paper import ClosedTrade, OrderRejected, PaperBroker
+from app.research.features import context_table, daily_rth, day_context, signal_features, with_gap
 from app.risk.engine import AccountState, MarketSnapshot, evaluate
 from app.strategy.orb import OrbRetestDay
 
@@ -34,7 +35,8 @@ class SessionRunner:
     def __init__(self, session: Session, broker: PaperBroker, spec: InstrumentSpec, orb_cfg: OrbConfig,
                  risk_cfg: RiskConfig, costs: CostModel, chash: str, data_source: DataSource,
                  log: LogFn, on_trade: Callable[[ClosedTrade], None],
-                 now_fn: Callable[[Bar], pd.Timestamp] | None = None) -> None:
+                 now_fn: Callable[[Bar], pd.Timestamp] | None = None,
+                 prior_daily: pd.DataFrame | None = None, ctx_base: dict | None = None) -> None:
         self.s = session
         self.broker = broker
         self.spec = spec
@@ -56,6 +58,10 @@ class SessionRunner:
         self.last_bar: Bar | None = None
         self.session_exit = session.close_utc - pd.Timedelta(minutes=orb_cfg.flat_before_close_minutes)
         self.finished = False
+        # Day context uses PRIOR sessions only; the gap needs today's open, so it is built on the first bar.
+        self._prior_daily = prior_daily if prior_daily is not None else pd.DataFrame(columns=["day", "open", "high", "low", "close"])
+        self.day_ctx: dict | None = None
+        self._ctx_base = ctx_base
 
     def log(self, time, stage: str, status: str, reasons, **extra) -> None:
         self._log({"session_day": self.s.day, "time": time, "stage": stage, "status": status,
@@ -70,6 +76,9 @@ class SessionRunner:
 
     def on_bar(self, bar: Bar) -> None:
         self.last_bar = bar
+        if self.day_ctx is None and bar.time >= self.s.open_utc:
+            self.day_ctx = (with_gap(self._ctx_base, bar.open) if self._ctx_base is not None
+                            else day_context(self._prior_daily, self.s, bar.open))
         if self.pending is not None:
             cand, decision = self.pending
             self.pending = None
@@ -91,6 +100,12 @@ class SessionRunner:
                 self.log(ev.time, "STRATEGY", "NO_SIGNAL", [ev.reason], **ev.details)
                 continue
             cand = ev.candidate
+            feats = signal_features(cand, self.day_ctx or {}, self.s, self.strategy.or_end)
+            hits = [f for f in self.orb_cfg.entry_filters if f.matches(feats)]
+            if hits:
+                self.log(ev.time, "FILTER", "FILTERED", [f"LESSON:{f.id}" for f in hits], candidate_id=cand.id,
+                         direction=cand.direction.name, features=feats, or_high=cand.or_high, or_low=cand.or_low)
+                continue
             account = AccountState(AccountMode.SIMULATION, self.broker.balance, self.day_start_equity,
                                    self.realized_today, self.trades_today, len(self.broker.positions))
             market = MarketSnapshot(now=self._now(bar), last_bar_close=bar.close_time,
@@ -99,7 +114,7 @@ class SessionRunner:
             self.log(ev.time, "RISK", "APPROVED" if decision.approved else "REJECTED", decision.reasons,
                      candidate_id=cand.id, direction=cand.direction.name, entry_ref=cand.entry_ref,
                      stop=cand.stop, target=cand.target, volume=decision.volume, rationale=cand.rationale,
-                     or_high=cand.or_high, or_low=cand.or_low)
+                     or_high=cand.or_high, or_low=cand.or_low, features=feats)
             if decision.approved:
                 self.pending = (cand, decision)
                 self.trades_today += 1
@@ -151,7 +166,9 @@ def run_backtest(
     costs: CostModel,
     starting_balance: float,
     data_source: DataSource,
+    prior_sessions: list[Session] | None = None,
 ) -> BacktestResult:
+    """`prior_sessions` (optional) are sessions BEFORE the test range used only to build day context."""
     missing = [c for c in BAR_COLUMNS if c not in bars.columns]
     if missing:
         raise ValueError(f"bars missing columns {missing}")
@@ -165,10 +182,13 @@ def run_backtest(
     chash = config_hash(orb_cfg, risk_cfg, costs, spec)
     broker = PaperBroker(spec, costs, starting_balance, data_source)
     result = BacktestResult(chash, data_source, [s.day for s in sessions], starting_balance, starting_balance)
+    daily = daily_rth(df, prior_sessions + sessions if prior_sessions else sessions)
+    table = context_table(daily)
 
     for s in sessions:
         runner = SessionRunner(s, broker, spec, orb_cfg, risk_cfg, costs, chash, data_source,
-                               log=result.journal.append, on_trade=result.trades.append)
+                               log=result.journal.append, on_trade=result.trades.append,
+                               ctx_base=table.get(s.day, {"weekday": s.day.weekday()}))
         for bar in iter_bars(_bars_for_session(df, times, s)):
             runner.on_bar(bar)
         runner.finish()

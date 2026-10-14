@@ -15,6 +15,7 @@ const NAV: { href: string; key: Key; icon: string }[] = [
   { href: "/chat", key: "navChat", icon: "✦" },
   { href: "/live", key: "navLive", icon: "◉" },
   { href: "/analysis", key: "navAnalysis", icon: "▤" },
+  { href: "/learning", key: "navLearning", icon: "◈" },
   { href: "/settings", key: "navSettings", icon: "⚙" },
 ];
 
@@ -103,7 +104,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-4 md:pb-8">{children}</main>
 
-        <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-line bg-panel md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-7 border-t border-line bg-panel md:hidden">
           {NAV.map((n) => (
             <Link key={n.href} href={n.href} className={`flex flex-col items-center py-2 text-[11px] ${active(n.href) ? "text-accent" : "text-muted"}`}>
               <span aria-hidden className="text-base">{n.icon}</span>

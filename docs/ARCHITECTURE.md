@@ -26,5 +26,10 @@ Browser (Next.js 16, Arabic RTL / English)  ──/api, /reports──►  FastA
 - Defaults live in `config/*.yaml`; the owner's edits are saved in `data/settings/`.
 - Analysis runs as a background job (`/api/analysis/run` → poll `/api/analysis/jobs/{id}`): the Next.js
   proxy cuts requests at 30 s and a first MT5 history download can take longer.
+- Learning: `research/features.py` (day context from PRIOR sessions + signal features; vectorized
+  `context_table` proven equal to the reference), `research/learning.py` (fixed discovery→validation
+  protocol, idea outcome tracking), `storage/db.py` (SQLite), `api/learning.py`. Approved lessons are
+  `EntryFilter`s inside `OrbConfig` (so they change the config hash) and are applied by `SessionRunner`
+  before the risk engine — identically in backtest and live.
 - Tests: `backend/tests` (pytest, no broker/keys). `tools/mutate.py` breaks each guard in a throwaway
   copy and expects a red test.

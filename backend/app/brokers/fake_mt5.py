@@ -232,7 +232,14 @@ class FakeMt5:
         lows = np.minimum(opens, closes) - wick[1]
         spread = np.where(in_rth, rng.integers(*sp_rth, len(times)), rng.integers(*sp_off, len(times)))
         spread = np.where(open_spike, rng.integers(*sp_open, len(times)), spread)
-        epochs = np.array([MOCK_SERVER_TZ.utc_to_server_epoch(t) for t in times], dtype=np.int64)
+        off0 = MOCK_SERVER_TZ.offset_at(times[0].to_pydatetime())
+        off1 = MOCK_SERVER_TZ.offset_at(times[-1].to_pydatetime())
+        if off0 == off1:  # DST never switches inside a weekday block (switches happen on Sundays ~06-07Z)
+            # Resolution-independent seconds since epoch (pandas 3 may use us, not ns).
+            secs = ((times - pd.Timestamp("1970-01-01", tz="UTC")) // pd.Timedelta(seconds=1)).to_numpy(dtype=np.int64)
+            epochs = secs + int(off0.total_seconds())
+        else:
+            epochs = np.array([MOCK_SERVER_TZ.utc_to_server_epoch(t) for t in times], dtype=np.int64)
         arr = np.zeros(len(times), dtype=RATE_DTYPE)
         arr["time"], arr["open"], arr["high"], arr["low"], arr["close"] = epochs, opens, highs, lows, closes
         arr["tick_volume"] = np.where(in_rth, rng.integers(80, 200, len(times)), rng.integers(5, 40, len(times)))

@@ -60,6 +60,32 @@ class StopMethod(str, Enum):
     RANGE_OPPOSITE = "range_opposite"
 
 
+FILTER_FEATURES = ("gap_atr", "prev_range_atr", "atr_ratio", "trend_daily", "weekday", "minutes_after_open",
+                   "or_width_atr", "stop_atr", "spread_to_stop", "trend_align", "breakout_delay_min")
+
+
+class EntryFilter(_Strict):
+    """An owner-approved lesson: skip a signal when `feature op value`. None never matches."""
+
+    id: str = Field(min_length=1, max_length=40)
+    feature: str
+    op: str = Field(pattern="^(gt|lt|eq)$")
+    value: float
+    note: str = Field(default="", max_length=300)
+
+    @model_validator(mode="after")
+    def _known(self) -> "EntryFilter":
+        if self.feature not in FILTER_FEATURES:
+            raise ValueError(f"unknown feature {self.feature}")
+        return self
+
+    def matches(self, features: dict) -> bool:
+        v = features.get(self.feature)
+        if v is None:
+            return False
+        return v > self.value if self.op == "gt" else v < self.value if self.op == "lt" else v == self.value
+
+
 class OrbConfig(_Strict):
     """Opening Range Breakout + Retest. See docs/TRADING_RULES.md."""
 
@@ -83,6 +109,7 @@ class OrbConfig(_Strict):
     max_gap_minutes: int = Field(2, ge=0, le=30)
     min_range: float | None = Field(None, ge=0)
     max_range: float | None = Field(None, gt=0)
+    entry_filters: tuple[EntryFilter, ...] = ()
 
     @model_validator(mode="after")
     def _consistent(self) -> "OrbConfig":

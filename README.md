@@ -16,6 +16,13 @@ Nothing here is a trading recommendation or a claim of profitability.
 - **Chat with Claude:** «حلل الذهب»، «شغّل المراقبة»، «اقترح صفقة شراء على US100»، «وقف». Claude analyses
   facts computed from your broker's data and can propose risk-sized trade ideas — **executed by hand in MT5**;
   the platform sends no orders. Needs a one-time `claude` → `/login` on this computer.
+- **Learning (evidence, not stories):** every trade stores the facts known at entry (gap, trend, range
+  width, stop size, spread vs stop, timing). The platform searches the latest analysis for rules like
+  "skip when spread_to_stop > x": a rule must hold on the first 60% of trades (≥20 skipped, negative mean,
+  t ≥ 3) AND on the unseen last 40%. Validated rules are **proposed**; you approve → entry filter → new
+  strategy version. Claude reviews losses as hypotheses (variance vs process). Claude's chat ideas are
+  tracked on prices (target/stop first) to measure its real accuracy, which it sees in its memory.
+  Data: SQLite file `data/nextrade.db`.
 - **Markets:** US100, US30, gold, oil, EURUSD, GBPUSD, USDJPY — matched to whatever names your broker uses.
 - **Emergency stop** (top bar, or type «وقف»): kill switch + live monitor off, instantly.
 - **MOCK broker:** synthetic data (labelled MOCK everywhere) to try the whole platform without MT5.

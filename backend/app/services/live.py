@@ -23,6 +23,7 @@ from app.core.config import CostModel, InstrumentSpec, OrbConfig, RiskConfig, co
 from app.core.models import ONE_MINUTE, Bar, DataSource, Session
 from app.execution.paper import ClosedTrade, PaperBroker
 from app.reporting.metrics import json_safe
+from app.research.features import daily_rth
 from app.services.backtest import SessionRunner, iter_bars
 
 STALE_AFTER_SECONDS = 150
@@ -32,8 +33,9 @@ class LiveMonitor:
     def __init__(self, gateway: Mt5Gateway, symbol: str, spec: InstrumentSpec, tz: ServerTz,
                  orb_cfg: OrbConfig, risk_cfg: RiskConfig, costs: CostModel, starting_balance: float,
                  data_source: DataSource, journal_dir: Path, clock: Callable[[], datetime],
-                 poll_seconds: float = 5.0) -> None:
+                 poll_seconds: float = 5.0, db=None) -> None:
         self.gw = gateway
+        self.db = db
         self.symbol = symbol
         self.spec = spec
         self.tz = tz
@@ -68,6 +70,10 @@ class LiveMonitor:
 
     def _trade(self, t: ClosedTrade) -> None:
         self.trades.append(t)
+        if self.db is not None:
+            feats = next((e.get("features") for e in reversed(self.events)
+                          if e.get("stage") == "RISK" and e.get("candidate_id") == t.candidate_id), None)
+            self.db.add_trades("paper", None, self.symbol, [t], {t.candidate_id: feats or {}})
 
     # -------------------------------------------------------------------- loop
     def start(self) -> None:
@@ -112,7 +118,8 @@ class LiveMonitor:
                 self.session = session
                 self.runner = SessionRunner(session, self.broker, self.spec, self.orb_cfg, self.risk_cfg,
                                             self.costs, self.chash, self.source, log=self._log,
-                                            on_trade=self._trade, now_fn=lambda _b: pd.Timestamp(self.clock()))
+                                            on_trade=self._trade, now_fn=lambda _b: pd.Timestamp(self.clock()),
+                                            prior_daily=self._prior_daily(session))
             if now < session.open_utc:
                 self.status, self.message = "WAITING_OPEN", f"Session opens {session.open_utc.isoformat()}"
                 return
@@ -131,6 +138,15 @@ class LiveMonitor:
                 self.status, self.message = "STALE_DATA", f"No new completed bar for {int(age)}s"
             else:
                 self.status, self.message = "RUNNING", ""
+
+    def _prior_daily(self, session: Session) -> pd.DataFrame:
+        """Previous ~40 sessions, aggregated per regular session — day context for the features."""
+        start = session.day - pd.Timedelta(days=62)
+        prior = [s for s in self.calendar.sessions_between(start, session.day) if s.day < session.day][-40:]
+        if not prior:
+            return pd.DataFrame(columns=["day", "open", "high", "low", "close"])
+        raw = self.gw.rates_m1_server(self.symbol, prior[0].open_utc, prior[-1].close_utc)
+        return daily_rth(to_utc_bars(raw, self.tz), prior)
 
     def _new_bars(self, session: Session, now: pd.Timestamp) -> list[Bar]:
         start = session.open_utc if self.last_bar_time is None else self.last_bar_time + ONE_MINUTE

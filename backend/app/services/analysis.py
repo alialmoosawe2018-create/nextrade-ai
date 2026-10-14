@@ -53,7 +53,7 @@ def ensure_server_tz(gw: Mt5Gateway, profiles: ProfileStore, profile: Profile, s
 
 def run_analysis(gw: Mt5Gateway, profiles: ProfileStore, profile: Profile, symbol: str, spec: InstrumentSpec,
                  orb: OrbConfig, risk: RiskConfig, costs: CostModel, balance: float, start: date, end: date,
-                 split: str, data_dir: Path, allow_holdout_reuse: bool = False) -> dict:
+                 split: str, data_dir: Path, allow_holdout_reuse: bool = False, db=None) -> dict:
     if spec.missing_fields():
         raise AnalysisBlocked("SPEC_INCOMPLETE", missing=spec.missing_fields())
     if risk.max_spread is None:
@@ -91,9 +91,10 @@ def run_analysis(gw: Mt5Gateway, profiles: ProfileStore, profile: Profile, symbo
             fp, config_hash(orb, risk, costs, spec), force=allow_holdout_reuse)
         extra["holdout_fingerprint"] = fp
 
+    prior = [s for s in sessions if s.day < part[0].day][-40:]  # context only, never traded
     results = {}
     for k in (1.0, 1.5, 2.0):
-        res = run_backtest(bars, part, spec, orb, risk, costs.scaled(k), balance, source)
+        res = run_backtest(bars, part, spec, orb, risk, costs.scaled(k), balance, source, prior_sessions=prior)
         results[k] = (res, summarize(res.trades, balance, len(part)))
     base, summary = results[1.0]
     summary["cost_sensitivity"] = {f"x{k}": {"trades": s.get("trades"),
@@ -104,6 +105,17 @@ def run_analysis(gw: Mt5Gateway, profiles: ProfileStore, profile: Profile, symbo
     out = write_run(data_dir / "runs", f"{split}-{symbol}", base, bars, part, summary,
                     {"strategy": orb.model_dump(mode="json"), "risk": risk.model_dump(mode="json"),
                      "costs": costs.model_dump(mode="json"), "instrument": spec.model_dump(mode="json")}, extra)
+    if db is not None:
+        db.add_trades("backtest", out.name, symbol, base.trades, features_by_candidate(base.journal))
     return {"run_id": out.name, "report_url": f"/reports/{out.name}/report.html", "summary": summary,
             "quality": {"verdict": report.verdict, **asdict(report)}, "server_tz": tz_rec.model_dump(),
             "data_source": source.value, "sessions": len(part)}
+
+
+def features_by_candidate(journal) -> dict:
+    """candidate_id -> features recorded at the decision (RISK or FILTER journal entries)."""
+    out = {}
+    for j in journal:
+        if j.get("stage") in ("RISK", "FILTER") and j.get("candidate_id") and j.get("features") is not None:
+            out[j["candidate_id"]] = j["features"]
+    return out

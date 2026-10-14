@@ -14,6 +14,7 @@ from app.brokers.assets import ASSETS, BY_KEY, mentioned, resolve
 from app.brokers.mt5_gateway import GatewayError
 from app.core.clock import BAGHDAD, NEW_YORK
 from app.services.chat import ChatService, ChatUnavailable, ClaudeCliRunner, find_claude_exe
+from app.research.learning import idea_stats
 from app.services.ideas import IdeaRejected, propose
 from app.services.market_context import snapshot
 
@@ -56,6 +57,28 @@ def register_assistant(app: FastAPI, st, *, need_gateway: Callable, need_symbol:
 
     def tz_or_none():
         return st.profile.server_tz.to_tz() if st.profile and st.profile.server_tz else None
+
+    def learning_memory() -> dict:
+        """What the platform has LEARNED, with evidence — so the model does not repeat proven mistakes."""
+        lessons = st.db.lessons()
+        reviews = list(st.db.reviews().values())
+        verdicts: dict[str, int] = {}
+        for r in reviews:
+            verdicts[r["verdict"]] = verdicts.get(r["verdict"], 0) + 1
+        ideas = st.db.ideas()
+        return {
+            "adopted_rules": [{"rule": f"skip when {l['feature']} {l['op']} {l['value']}", "symbol": l["symbol"],
+                               "validation": l["evidence"].get("validation")} for l in lessons if l["status"] == "ADOPTED"],
+            "validated_waiting_owner": [f"{l['feature']} {l['op']} {l['value']}" for l in lessons if l["status"] == "VALIDATED"],
+            "rejected_or_unproven": [f"{l['feature']} {l['op']} {l['value']} ({l['status']})" for l in lessons
+                                     if l["status"] in ("REJECTED", "UNVALIDATED", "RETIRED")][:10],
+            "loss_reviews": {"count": len(reviews), "by_verdict": verdicts,
+                             "latest": [{"verdict": r["verdict"], "factors": r["factors"], "why": r["explanation"]}
+                                        for r in reviews[-5:]]},
+            "your_trade_ideas_track_record": idea_stats(ideas),
+            "how_to_use": "Respect adopted rules when proposing trades. Mention your real track record when "
+                          "confidence matters. Do not present unproven patterns as lessons.",
+        }
 
     def context(message: str) -> dict:
         now = st.clock()
@@ -105,6 +128,7 @@ def register_assistant(app: FastAPI, st, *, need_gateway: Callable, need_symbol:
             detail.append(snapshot(gw, st.spec.symbol, tz_or_none(), now, info.source))
         ctx["market"] = detail
         ctx["recent_ideas"] = list(st.ideas.values())[-5:]
+        ctx["learning_memory"] = learning_memory()
         try:
             runs = sorted((st.data_dir / "runs").glob("*"), reverse=True)[:3]
             ctx["recent_backtests"] = [r.name for r in runs]
@@ -144,6 +168,7 @@ def register_assistant(app: FastAPI, st, *, need_gateway: Callable, need_symbol:
                                float(action["tp"]) if action.get("tp") is not None else None, action.get("risk_pct"),
                                st.settings.get("risk"), st.settings.get("costs"), action.get("rationale") or "")
                 st.ideas[idea.id] = idea.to_dict()
+                st.db.add_idea(idea.to_dict())
                 return idea.to_dict()
         except HTTPException as e:
             d = e.detail if isinstance(e.detail, dict) else {"message": str(e.detail)}

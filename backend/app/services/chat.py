@@ -112,6 +112,14 @@ class ClaudeCliRunner:
         self._exe = exe
 
     def run(self, system: str, prompt: str, schema: dict) -> dict:
+        """Chat turn: {reply, actions, cost_usd, duration_ms}."""
+        out = self.run_json(system, prompt, schema)
+        data = out["data"]
+        return {"reply": str(data.get("reply", "")), "actions": list(data.get("actions") or []),
+                "cost_usd": out["cost_usd"], "duration_ms": out["duration_ms"]}
+
+    def run_json(self, system: str, prompt: str, schema: dict) -> dict:
+        """Any structured call: {data: <object matching schema>, cost_usd, duration_ms}."""
         exe = self._exe or find_claude_exe()
         if not exe:
             raise ChatUnavailable("CLAUDE_CLI_MISSING", "Claude Code is not installed on this computer.")
@@ -140,8 +148,7 @@ class ClaudeCliRunner:
                 data = json.loads(result_text)
             except json.JSONDecodeError:
                 data = {"reply": result_text, "actions": []}
-        return {"reply": str(data.get("reply", "")), "actions": list(data.get("actions") or []),
-                "cost_usd": out.get("total_cost_usd"), "duration_ms": out.get("duration_ms")}
+        return {"data": data, "cost_usd": out.get("total_cost_usd"), "duration_ms": out.get("duration_ms")}
 
 
 def validate_actions(raw: list) -> tuple[list[dict], list[str]]:
