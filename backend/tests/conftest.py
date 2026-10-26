@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+
+os.environ["NEXTRADE_NO_BACKGROUND"] = "1"  # never start the daily-brief thread (it could call the real Claude)
+
 from datetime import date
 
 import pandas as pd

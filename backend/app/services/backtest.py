@@ -36,7 +36,8 @@ class SessionRunner:
                  risk_cfg: RiskConfig, costs: CostModel, chash: str, data_source: DataSource,
                  log: LogFn, on_trade: Callable[[ClosedTrade], None],
                  now_fn: Callable[[Bar], pd.Timestamp] | None = None,
-                 prior_daily: pd.DataFrame | None = None, ctx_base: dict | None = None) -> None:
+                 prior_daily: pd.DataFrame | None = None, ctx_base: dict | None = None,
+                 news_fn: Callable[[pd.Timestamp], str | None] | None = None) -> None:
         self.s = session
         self.broker = broker
         self.spec = spec
@@ -62,6 +63,7 @@ class SessionRunner:
         self._prior_daily = prior_daily if prior_daily is not None else pd.DataFrame(columns=["day", "open", "high", "low", "close"])
         self.day_ctx: dict | None = None
         self._ctx_base = ctx_base
+        self._news_fn = news_fn
 
     def log(self, time, stage: str, status: str, reasons, **extra) -> None:
         self._log({"session_day": self.s.day, "time": time, "stage": stage, "status": status,
@@ -109,7 +111,8 @@ class SessionRunner:
             account = AccountState(AccountMode.SIMULATION, self.broker.balance, self.day_start_equity,
                                    self.realized_today, self.trades_today, len(self.broker.positions))
             market = MarketSnapshot(now=self._now(bar), last_bar_close=bar.close_time,
-                                    spread=cand.spread_at_signal)
+                                    spread=cand.spread_at_signal,
+                                    news_block=self._news_fn(ev.time) if self._news_fn else None)
             decision = evaluate(cand, account, market, self.spec, self.risk_cfg, self.costs)
             self.log(ev.time, "RISK", "APPROVED" if decision.approved else "REJECTED", decision.reasons,
                      candidate_id=cand.id, direction=cand.direction.name, entry_ref=cand.entry_ref,

@@ -33,9 +33,10 @@ class LiveMonitor:
     def __init__(self, gateway: Mt5Gateway, symbol: str, spec: InstrumentSpec, tz: ServerTz,
                  orb_cfg: OrbConfig, risk_cfg: RiskConfig, costs: CostModel, starting_balance: float,
                  data_source: DataSource, journal_dir: Path, clock: Callable[[], datetime],
-                 poll_seconds: float = 5.0, db=None) -> None:
+                 poll_seconds: float = 5.0, db=None, news=None) -> None:
         self.gw = gateway
         self.db = db
+        self.news = news
         self.symbol = symbol
         self.spec = spec
         self.tz = tz
@@ -119,7 +120,7 @@ class LiveMonitor:
                 self.runner = SessionRunner(session, self.broker, self.spec, self.orb_cfg, self.risk_cfg,
                                             self.costs, self.chash, self.source, log=self._log,
                                             on_trade=self._trade, now_fn=lambda _b: pd.Timestamp(self.clock()),
-                                            prior_daily=self._prior_daily(session))
+                                            prior_daily=self._prior_daily(session), news_fn=self._news_block)
             if now < session.open_utc:
                 self.status, self.message = "WAITING_OPEN", f"Session opens {session.open_utc.isoformat()}"
                 return
@@ -138,6 +139,12 @@ class LiveMonitor:
                 self.status, self.message = "STALE_DATA", f"No new completed bar for {int(age)}s"
             else:
                 self.status, self.message = "RUNNING", ""
+
+    def _news_block(self, at: pd.Timestamp) -> str | None:
+        if self.news is None:
+            return None
+        from app.market.news import news_block
+        return news_block(self.news.events(), at, self.risk_cfg)
 
     def _prior_daily(self, session: Session) -> pd.DataFrame:
         """Previous ~40 sessions, aggregated per regular session — day context for the features."""

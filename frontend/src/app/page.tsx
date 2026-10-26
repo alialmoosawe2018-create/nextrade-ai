@@ -6,6 +6,7 @@ import { Alert, Badge, Card, Num, Row, SourceBadge } from "@/components/ui";
 import { usePoll, type Health, type LiveSnapshot, type RunRow } from "@/lib/api";
 import { reasonLabel, useI18n } from "@/lib/i18n";
 
+type NewsResp = { available: boolean; us100_blocked_now?: string | null; upcoming?: { title: string; currency: string; impact: string; baghdad: string; forecast: string; previous: string }[] };
 type WatchRow = { asset: string; name_ar: string; name_en: string; symbol: string | null; bid: number | null; ask: number | null; spread: number | null; source: string };
 
 export default function Overview() {
@@ -15,6 +16,7 @@ export default function Overview() {
   const { data: runs } = usePoll<RunRow[]>("/api/analysis/runs", 15000);
   const conn = health?.connection;
   const { data: watch } = usePoll<WatchRow[]>(conn?.connected ? "/api/watchlist" : null, 5000);
+  const { data: news } = usePoll<NewsResp>("/api/news", 600000);
 
   if (error) return <Alert tone="bad">{t("backendDown")}</Alert>;
   if (!health) return <p className="text-muted">{t("loading")}</p>;
@@ -55,6 +57,26 @@ export default function Overview() {
           <p className="text-sm text-muted">OFF</p>
         )}
         <p className="mt-3 text-xs text-muted">{t("simulatedNote")}</p>
+      </Card>
+
+      <Card title={t("newsTitle")} className="md:col-span-2">
+        {!news?.available ? <Alert>{t("newsUnavailable")}</Alert> : (
+          <>
+            {news.us100_blocked_now ? <Alert tone="bad">{t("newsBlocked")} <span className="num">{news.us100_blocked_now}</span></Alert>
+              : <p className="text-sm text-good">✓ {t("newsClear")}</p>}
+            <ul className="mt-2 space-y-1 text-sm">
+              {(news.upcoming ?? []).filter((e) => e.impact === "High").slice(0, 12).map((e) => (
+                <li key={e.title + e.baghdad} className="flex flex-wrap items-center gap-2">
+                  <span className="num w-24 text-muted">{e.baghdad}</span>
+                  <Badge tone={e.currency === "USD" ? "bad" : "warn"}>{e.currency}</Badge>
+                  <span>{e.title}</span>
+                  {e.forecast && <span className="num text-xs text-muted">f {e.forecast} · p {e.previous}</span>}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-muted">{t("newsNote")}</p>
+          </>
+        )}
       </Card>
 
       {watch && (

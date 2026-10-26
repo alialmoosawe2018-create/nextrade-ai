@@ -29,6 +29,7 @@ from app.services.live import LiveMonitor
 from app.services.splits import SPLITS
 from app.api.assistant import register_assistant
 from app.api.learning import register_learning
+from app.market.news import NewsCalendar
 from app.storage.db import Db
 from app.storage.store import SETTINGS_MODELS, Profile, ProfileStore, SettingsStore
 
@@ -56,6 +57,7 @@ class AppState:
         self.ideas: dict[str, dict] = {}
         self.chat = None
         self.db = Db(self.data_dir / "nextrade.db")
+        self.news = NewsCalendar(self.data_dir / "news")
 
     def record_error(self, where: str, msg: str) -> None:
         self.errors.append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "where": where, "error": msg})
@@ -379,7 +381,7 @@ def create_app(data_dir: Path | None = None, mt5_factory=None, mock_factory=None
             st.monitor = LiveMonitor(gw, spec.symbol, spec, st.profile.server_tz.to_tz(),
                                      st.settings.get("strategy"), risk, st.settings.get("costs"),
                                      st.settings.get("paper").starting_balance, source,
-                                     st.data_dir / "live", st.clock, poll_seconds=2.0, db=st.db)
+                                     st.data_dir / "live", st.clock, poll_seconds=2.0, db=st.db, news=st.news)
             st.monitor.start()
         return st.monitor.snapshot()
 

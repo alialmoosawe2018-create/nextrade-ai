@@ -32,6 +32,7 @@ class MarketSnapshot:
     now: pd.Timestamp
     last_bar_close: pd.Timestamp | None
     spread: float | None  # price units
+    news_block: str | None = None  # set by the live news calendar
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,10 @@ def evaluate(
         reasons.append("SPREAD_UNKNOWN")
     elif market.spread > cfg.max_spread:
         reasons.append("SPREAD_TOO_WIDE")
+
+    if market.news_block:
+        reasons.append("NEWS_BLACKOUT")
+        details["news"] = market.news_block
 
     # --- account limits ----------------------------------------------------
     daily_limit = account.day_start_equity * cfg.max_daily_loss_pct / 100.0

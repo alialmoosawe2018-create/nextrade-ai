@@ -135,6 +135,12 @@ class RiskConfig(_Strict):
     max_data_age_seconds: int = Field(90, ge=1, le=3600)
     max_volume: float | None = Field(None, gt=0)
     trading_enabled: bool = True  # False = kill switch
+    # News protection (live only: the calendar covers the current week).
+    news_blackout_before_min: int = Field(30, ge=0, le=240)
+    news_blackout_after_min: int = Field(30, ge=0, le=240)
+    news_impacts: tuple[str, ...] = ("High",)
+    news_currencies: tuple[str, ...] = ("USD",)
+    news_skip_day_titles: tuple[str, ...] = ("Federal Funds Rate", "FOMC Statement")
     allowed_modes: tuple[AccountMode, ...] = (AccountMode.SIMULATION,)
 
 

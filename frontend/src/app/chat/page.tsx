@@ -16,7 +16,7 @@ type Idea = {
 };
 type ChatStatus = { cli_found: boolean; model: string; note: string };
 
-const QUICK = ["حلل US100", "حلل الذهب والنفط", "شغّل المراقبة الحية", "شنو وضع السوق هسه؟", "وقف"];
+const QUICK = ["ملخص اليوم", "حلل US100", "حلل الذهب والنفط", "شغّل المراقبة الحية", "شنو وضع السوق هسه؟", "وقف"];
 
 export default function Chat() {
   const { t, lang } = useI18n();
@@ -36,9 +36,24 @@ export default function Chat() {
     bottom.current?.scrollIntoView({ block: "end" });
   }, [messages.length, busy]);
 
+  async function brief() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api<{ status: string; error?: { code?: string; message?: string } }>("/api/brief", { method: "POST" });
+      if (r.status === "FAILED") setErr({ code: r.error?.code, message: r.error?.message ?? "" });
+      reload();
+    } catch (e) {
+      setErr(e instanceof ApiError ? { code: e.code, message: e.message } : { message: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function send(message: string) {
     const m = message.trim();
     if (!m || busy) return;
+    if (m === "ملخص اليوم") return brief();
     setBusy(true);
     setErr(null);
     setText("");

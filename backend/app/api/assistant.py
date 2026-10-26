@@ -4,6 +4,10 @@ Nothing here sends an order. Trade ideas are risk-checked proposals for MANUAL e
 """
 from __future__ import annotations
 
+import json
+import os
+import threading
+import time as time_mod
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 
@@ -13,9 +17,13 @@ from pydantic import BaseModel, Field
 from app.brokers.assets import ASSETS, BY_KEY, mentioned, resolve
 from app.brokers.mt5_gateway import GatewayError
 from app.core.clock import BAGHDAD, NEW_YORK
-from app.services.chat import ChatService, ChatUnavailable, ClaudeCliRunner, find_claude_exe
+from app.services.chat import (OUTPUT_SCHEMA, SYSTEM_PROMPT, ChatService, ChatUnavailable, ClaudeCliRunner,
+                               find_claude_exe)
 from app.research.learning import idea_stats
 from app.services.ideas import IdeaRejected, propose
+import pandas as pd
+
+from app.market.news import news_block
 from app.services.market_context import snapshot
 
 
@@ -80,6 +88,21 @@ def register_assistant(app: FastAPI, st, *, need_gateway: Callable, need_symbol:
                           "confidence matters. Do not present unproven patterns as lessons.",
         }
 
+    def news_view(hours_ahead: int = 36) -> dict:
+        events = st.news.events()
+        if events is None:
+            return {"available": False, "note": "economic calendar unavailable (no internet / feed down)"}
+        now = pd.Timestamp(st.clock())
+        risk = st.settings.get("risk")
+        soon = [e for e in events if now - pd.Timedelta(hours=2) <= e["time_utc"] <= now + pd.Timedelta(hours=hours_ahead)
+                and e["impact"] in ("High", "Medium")]
+        return {"available": True, "covers": "current week",
+                "us100_blocked_now": news_block(events, now, risk),
+                "upcoming": [{"title": e["title"], "currency": e["country"], "impact": e["impact"],
+                              "baghdad": e["time_utc"].tz_convert(BAGHDAD).strftime("%a %H:%M"),
+                              "utc": e["time_utc"].strftime("%Y-%m-%d %H:%M"),
+                              "forecast": e["forecast"], "previous": e["previous"]} for e in soon][:25]}
+
     def context(message: str) -> dict:
         now = st.clock()
         ctx: dict = {
@@ -129,6 +152,7 @@ def register_assistant(app: FastAPI, st, *, need_gateway: Callable, need_symbol:
         ctx["market"] = detail
         ctx["recent_ideas"] = list(st.ideas.values())[-5:]
         ctx["learning_memory"] = learning_memory()
+        ctx["economic_calendar"] = news_view()
         try:
             runs = sorted((st.data_dir / "runs").glob("*"), reverse=True)[:3]
             ctx["recent_backtests"] = [r.name for r in runs]
@@ -181,6 +205,54 @@ def register_assistant(app: FastAPI, st, *, need_gateway: Callable, need_symbol:
 
     st.chat = ChatService(ClaudeCliRunner(st.data_dir / "chat" / "sandbox"), st.data_dir / "chat" / "history.jsonl",
                           context_fn=context, execute=execute, kill=kill)
+
+    BRIEF_INSTRUCTION = ("Write today's brief for the owner (Iraqi Arabic, plain text, short): 1) today's important "
+                         "economic news with Baghdad times and what they usually do to US indices/gold/USD, 2) the state "
+                         "of US100, US30, gold and oil from CONTEXT (trend, levels, volatility), 3) whether today looks "
+                         "calm or dangerous for the opening-range strategy and why, 4) what to watch. Facts from CONTEXT only. "
+                         "No trade ideas, no actions.")
+    brief_state = {"day": None, "running": False}
+
+    def run_brief() -> dict:
+        if brief_state["running"]:
+            return {"status": "RUNNING"}
+        brief_state["running"] = True
+        try:
+            ctx = context("US100 US30 gold oil")
+            out = st.chat.runner.run(SYSTEM_PROMPT, "CONTEXT (facts from the platform, JSON):\n"
+                                     + json.dumps(ctx, ensure_ascii=False, default=str)
+                                     + "\n\nTASK:\n" + BRIEF_INSTRUCTION, OUTPUT_SCHEMA)
+            msg = st.chat._append(ChatService._msg("assistant", out["reply"], brief=True,
+                                                   data_source=ctx.get("connection", {}).get("source")))
+            brief_state["day"] = datetime.now(BAGHDAD).date().isoformat()
+            return {"status": "DONE", "message": msg}
+        except ChatUnavailable as e:
+            return {"status": "FAILED", "error": {"code": e.code, "message": str(e)}}
+        finally:
+            brief_state["running"] = False
+
+    def brief_scheduler() -> None:
+        """Once a day at/after 10:00 Baghdad, while the platform runs and an account is connected."""
+        while True:
+            try:
+                now = datetime.now(BAGHDAD)
+                if (now.hour >= 10 and brief_state["day"] != now.date().isoformat()
+                        and st.gateway is not None and st.gateway.connected and find_claude_exe()):
+                    run_brief()
+            except Exception as e:  # noqa: BLE001
+                st.record_error("brief", f"{type(e).__name__}: {e}")
+            time_mod.sleep(60)
+
+    if os.environ.get("NEXTRADE_NO_BACKGROUND") != "1":
+        threading.Thread(target=brief_scheduler, daemon=True, name="daily-brief").start()
+
+    @app.get("/api/news")
+    def news():
+        return {**st.news.status(), **news_view(hours_ahead=24 * 7)}
+
+    @app.post("/api/brief")
+    def brief():
+        return run_brief()
 
     # ------------------------------------------------------------- routes
     @app.post("/api/kill")
