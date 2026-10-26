@@ -20,7 +20,8 @@ from app.core.config import CostModel, InstrumentSpec, OrbConfig, RiskConfig, co
 from app.core.models import AccountMode, Bar, DataSource, Session
 from app.execution.costs import spread_price
 from app.execution.paper import ClosedTrade, OrderRejected, PaperBroker
-from app.research.features import context_table, daily_rth, day_context, signal_features, with_gap
+from app.research.features import (MacroContext, context_table, daily_rth, day_context, signal_features,
+                                   with_gap)
 from app.risk.engine import AccountState, MarketSnapshot, evaluate
 from app.strategy.orb import OrbRetestDay
 
@@ -37,7 +38,8 @@ class SessionRunner:
                  log: LogFn, on_trade: Callable[[ClosedTrade], None],
                  now_fn: Callable[[Bar], pd.Timestamp] | None = None,
                  prior_daily: pd.DataFrame | None = None, ctx_base: dict | None = None,
-                 news_fn: Callable[[pd.Timestamp], str | None] | None = None) -> None:
+                 news_fn: Callable[[pd.Timestamp], str | None] | None = None,
+                 macro_fn: Callable[[], dict] | None = None) -> None:
         self.s = session
         self.broker = broker
         self.spec = spec
@@ -64,6 +66,7 @@ class SessionRunner:
         self.day_ctx: dict | None = None
         self._ctx_base = ctx_base
         self._news_fn = news_fn
+        self._macro_fn = macro_fn
 
     def log(self, time, stage: str, status: str, reasons, **extra) -> None:
         self._log({"session_day": self.s.day, "time": time, "stage": stage, "status": status,
@@ -81,6 +84,8 @@ class SessionRunner:
         if self.day_ctx is None and bar.time >= self.s.open_utc:
             self.day_ctx = (with_gap(self._ctx_base, bar.open) if self._ctx_base is not None
                             else day_context(self._prior_daily, self.s, bar.open))
+            if self._macro_fn is not None:
+                self.day_ctx = {**self.day_ctx, **self._macro_fn()}
         if self.pending is not None:
             cand, decision = self.pending
             self.pending = None
@@ -170,6 +175,7 @@ def run_backtest(
     starting_balance: float,
     data_source: DataSource,
     prior_sessions: list[Session] | None = None,
+    macro_bars: dict | None = None,
 ) -> BacktestResult:
     """`prior_sessions` (optional) are sessions BEFORE the test range used only to build day context."""
     missing = [c for c in BAR_COLUMNS if c not in bars.columns]
@@ -187,11 +193,16 @@ def run_backtest(
     result = BacktestResult(chash, data_source, [s.day for s in sessions], starting_balance, starting_balance)
     daily = daily_rth(df, prior_sessions + sessions if prior_sessions else sessions)
     table = context_table(daily)
+    macro = MacroContext(macro_bars or {})
+    all_sessions = (prior_sessions or []) + sessions
+    prev_of = {x.day: (all_sessions[i - 1] if i >= 1 else None, all_sessions[i - 2] if i >= 2 else None)
+               for i, x in enumerate(all_sessions)}
 
     for s in sessions:
         runner = SessionRunner(s, broker, spec, orb_cfg, risk_cfg, costs, chash, data_source,
                                log=result.journal.append, on_trade=result.trades.append,
-                               ctx_base=table.get(s.day, {"weekday": s.day.weekday()}))
+                               ctx_base=table.get(s.day, {"weekday": s.day.weekday()}),
+                               macro_fn=(lambda s=s: macro.for_session(s, *prev_of[s.day])) if macro_bars else None)
         for bar in iter_bars(_bars_for_session(df, times, s)):
             runner.on_bar(bar)
         runner.finish()

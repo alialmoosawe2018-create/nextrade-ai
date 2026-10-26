@@ -174,6 +174,37 @@ def register_learning(app: FastAPI, st, *, need_gateway: Callable, stop_monitor:
             raise HTTPException(404, detail="no such job")
         return job
 
+    # ------------------------------------------------------ Claude bias record
+    @app.get("/api/learning/biases")
+    def biases():
+        """Each pre-open bias vs what US100 actually did open->close. Late biases (after the open) are excluded."""
+        from app.brokers.assets import BY_KEY, resolve
+        from app.core.clock import MarketCalendar
+        rows = st.db.biases("US100")
+        gw = st.gateway
+        sym = None
+        if gw is not None and gw.connected:
+            sym = resolve(BY_KEY["US100"], gw.find_symbols(nasdaq_only=False))
+        cal = MarketCalendar()
+        out, hits = [], []
+        for b in rows:
+            sess = cal.session(pd.Timestamp(b["day"]).date())
+            item = {**b, "pre_open": sess is not None and pd.Timestamp(b["created_at"]) < sess.open_utc,
+                    "move_pct": None, "hit": None}
+            if sess is not None and sym and st.profile and st.profile.server_tz and pd.Timestamp(st.clock()) > sess.close_utc:
+                bars = to_utc_bars(gw.rates_m1_server(sym, sess.open_utc, sess.close_utc), st.profile.server_tz.to_tz())
+                d = bars[(bars["time"] >= sess.open_utc) & (bars["time"] < sess.close_utc)]
+                if len(d) > 300:
+                    item["move_pct"] = round((float(d["close"].iloc[-1]) / float(d["open"].iloc[0]) - 1) * 100, 3)
+                    if b["bias"] != "NEUTRAL" and item["pre_open"]:
+                        item["hit"] = (item["move_pct"] > 0) == (b["bias"] == "BULLISH")
+                        hits.append(item["hit"])
+            out.append(item)
+        n = len(hits)
+        stats = {"scored": n, "hit_rate": round(sum(hits) / n, 3) if n else None,
+                 "note": "coin-flip is 50%; needs 30+ scored days to mean anything" if n < 30 else None}
+        return {"biases": out, "stats": stats}
+
     # --------------------------------------------------------- idea tracking
     @app.get("/api/learning/ideas")
     def ideas():

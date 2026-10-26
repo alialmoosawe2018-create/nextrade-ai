@@ -20,8 +20,8 @@ import numpy as np
 import pandas as pd
 
 NUMERIC = ("gap_atr", "prev_range_atr", "atr_ratio", "minutes_after_open", "or_width_atr", "stop_atr",
-           "spread_to_stop", "breakout_delay_min")
-CATEGORICAL = ("trend_align", "trend_daily", "weekday")
+           "spread_to_stop", "breakout_delay_min", "spx_prev_ret", "spx_overnight", "usd_overnight", "gold_overnight")
+CATEGORICAL = ("trend_align", "trend_daily", "weekday", "macro_align", "bias_align")
 MIN_TRADES = 60
 MIN_EXCLUDED_DISCOVERY = 20
 MIN_EXCLUDED_VALIDATION = 8

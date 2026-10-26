@@ -40,8 +40,8 @@ class ActionFailed(Exception):
 def register_assistant(app: FastAPI, st, *, need_gateway: Callable, need_symbol: Callable, start_live: Callable,
                        start_analysis: Callable, stop_monitor: Callable) -> None:
     # ------------------------------------------------------------ helpers
-    def broker_symbols() -> list[str]:
-        return [s["name"] for s in need_gateway().find_symbols(nasdaq_only=False)]
+    def broker_symbols() -> list[dict]:
+        return need_gateway().find_symbols(nasdaq_only=False)   # rows with name + path (stocks excluded by resolve)
 
     def asset_symbol(key: str) -> str:
         a = BY_KEY.get((key or "").upper())
@@ -212,6 +212,26 @@ def register_assistant(app: FastAPI, st, *, need_gateway: Callable, need_symbol:
                          "calm or dangerous for the opening-range strategy and why, 4) what to watch. Facts from CONTEXT only. "
                          "No trade ideas, no actions.")
     brief_state = {"day": None, "running": False}
+    BIAS_SCHEMA = {"type": "object", "properties": {
+        "bias": {"type": "string", "enum": ["BULLISH", "BEARISH", "NEUTRAL"]},
+        "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+        "reasons": {"type": "array", "items": {"type": "string"}}}, "required": ["bias", "confidence", "reasons"]}
+    BIAS_INSTRUCTION = ("Give today's FUNDAMENTAL bias for US100 (Nasdaq 100) for the US cash session, from the "
+                        "economic calendar and the macro facts in CONTEXT (S&P/dollar/gold moves, trend, news timing). "
+                        "NEUTRAL when there is no clear edge. Confidence 0-100 must be honest (most days 40-60). "
+                        "Reasons: 2-4 short points in Iraqi Arabic. This is recorded to be scored later, not traded.")
+
+    def record_bias(ctx: dict) -> dict | None:
+        """Shadow only: stored with its timestamp; it influences nothing until proven by the learning loop."""
+        out = st.chat.runner.run_json(SYSTEM_PROMPT, "CONTEXT (facts from the platform, JSON):\n"
+                                      + json.dumps(ctx, ensure_ascii=False, default=str) + "\n\nTASK:\n" + BIAS_INSTRUCTION,
+                                      BIAS_SCHEMA)["data"]
+        if out.get("bias") not in ("BULLISH", "BEARISH", "NEUTRAL"):
+            return None
+        day = datetime.now(NEW_YORK).date().isoformat()
+        st.db.set_bias(day, "US100", out["bias"], max(0, min(100, int(out.get("confidence", 50)))),
+                       [str(r)[:200] for r in out.get("reasons", [])][:4])
+        return st.db.bias(day, "US100")
 
     def run_brief() -> dict:
         if brief_state["running"]:
@@ -225,7 +245,12 @@ def register_assistant(app: FastAPI, st, *, need_gateway: Callable, need_symbol:
             msg = st.chat._append(ChatService._msg("assistant", out["reply"], brief=True,
                                                    data_source=ctx.get("connection", {}).get("source")))
             brief_state["day"] = datetime.now(BAGHDAD).date().isoformat()
-            return {"status": "DONE", "message": msg}
+            bias = None
+            try:
+                bias = record_bias(ctx)
+            except ChatUnavailable:
+                pass
+            return {"status": "DONE", "message": msg, "bias": bias}
         except ChatUnavailable as e:
             return {"status": "FAILED", "error": {"code": e.code, "message": str(e)}}
         finally:

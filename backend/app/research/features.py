@@ -34,7 +34,15 @@ FEATURE_DOCS = {
     "spread_to_stop": "spread at signal / stop distance",
     "trend_align": "+1 trade with the daily trend, -1 against, 0 mixed/unknown",
     "breakout_delay_min": "minutes from opening-range end to the breakout candle close",
+    "spx_prev_ret": "S&P 500 previous session close-to-close change, % (risk appetite yesterday)",
+    "spx_overnight": "S&P 500 last price before 09:30 ET vs previous session close, %",
+    "usd_overnight": "US dollar strength overnight = minus EURUSD change prev close -> before open, %",
+    "gold_overnight": "gold change prev close -> before open, % (safe-haven demand)",
+    "macro_align": "+1 trade in the direction of the S&P overnight move, -1 against, 0 flat/unknown",
+    "bias_align": "+1 trade agrees with Claude daily fundamental bias, -1 against, 0 neutral (live only)",
 }
+
+MACRO_ASSETS = {"spx": "US500", "eurusd": "EURUSD", "gold": "XAUUSD"}  # asset keys, resolved per broker
 
 
 def daily_rth(bars_utc: pd.DataFrame, sessions: list[Session]) -> pd.DataFrame:
@@ -129,6 +137,65 @@ def with_gap(base: dict, session_open_price: float) -> dict:
     return ctx
 
 
+def _last_close_before(bars: pd.DataFrame, times: np.ndarray, t: pd.Timestamp) -> float | None:
+    i = int(np.searchsorted(times, t.tz_convert("UTC").tz_localize(None).to_datetime64(), side="left")) - 1
+    if i < 0:
+        return None
+    close_time = pd.Timestamp(times[i]).tz_localize("UTC") + pd.Timedelta(minutes=1)
+    if close_time > t or (t - close_time) > pd.Timedelta(hours=6):
+        return None  # incomplete, or too stale to describe "just before"
+    return float(bars["close"].iloc[i])
+
+
+def fetch_macro_bars(gw, tz, start: pd.Timestamp, end: pd.Timestamp) -> dict:
+    """Macro bars (UTC) from the connected terminal; missing symbols are simply absent (features -> None)."""
+    from app.brokers.assets import BY_KEY, resolve
+    from app.brokers.mt5_gateway import to_utc_bars
+    names = gw.find_symbols(nasdaq_only=False)
+    out = {}
+    for key, asset_key in MACRO_ASSETS.items():
+        sym = resolve(BY_KEY[asset_key], names)
+        if sym:
+            try:
+                out[key] = to_utc_bars(gw.rates_m1_server(sym, start, end), tz)
+            except Exception:  # noqa: BLE001 — a missing macro symbol must not break the analysis
+                continue
+    return out
+
+
+class MacroContext:
+    """Overnight / previous-day moves of S&P 500, the dollar and gold, using only bars that CLOSED before
+    the session open. Same code for backtest (preloaded bars) and live (bars fetched at the open)."""
+
+    def __init__(self, macro_bars: dict) -> None:
+        self.bars = {k: v.sort_values("time").reset_index(drop=True) for k, v in macro_bars.items()
+                     if v is not None and len(v)}
+        self.times = {k: pd.to_datetime(v["time"], utc=True).dt.tz_localize(None).to_numpy(dtype="datetime64[ns]")
+                      for k, v in self.bars.items()}
+
+    def _px(self, key: str, t: pd.Timestamp) -> float | None:
+        if key not in self.bars:
+            return None
+        return _last_close_before(self.bars[key], self.times[key], t)
+
+    def for_session(self, session: Session, prev: Session | None, prev2: Session | None) -> dict:
+        out = {"spx_prev_ret": None, "spx_overnight": None, "usd_overnight": None, "gold_overnight": None}
+        if prev is None:
+            return out
+
+        def pct(a, b):
+            return None if a is None or b in (None, 0) else (a / b - 1) * 100
+
+        spx_prev_close = self._px("spx", prev.close_utc)
+        out["spx_overnight"] = pct(self._px("spx", session.open_utc), spx_prev_close)
+        if prev2 is not None:
+            out["spx_prev_ret"] = pct(spx_prev_close, self._px("spx", prev2.close_utc))
+        e = pct(self._px("eurusd", session.open_utc), self._px("eurusd", prev.close_utc))
+        out["usd_overnight"] = None if e is None else -e
+        out["gold_overnight"] = pct(self._px("gold", session.open_utc), self._px("gold", prev.close_utc))
+        return out
+
+
 def signal_features(c: Candidate, ctx: dict, session: Session, or_end: pd.Timestamp) -> dict:
     atr = ctx.get("atr14")
     stop = c.risk_distance
@@ -143,6 +210,11 @@ def signal_features(c: Candidate, ctx: dict, session: Session, or_end: pd.Timest
         "spread_to_stop": c.spread_at_signal / stop if stop > 0 else None,
         "trend_align": (trend * d) if trend is not None else None,
         "breakout_delay_min": (c.breakout_time - or_end).total_seconds() / 60,
+        "spx_prev_ret": ctx.get("spx_prev_ret"), "spx_overnight": ctx.get("spx_overnight"),
+        "usd_overnight": ctx.get("usd_overnight"), "gold_overnight": ctx.get("gold_overnight"),
+        "macro_align": (None if ctx.get("spx_overnight") is None else
+                        (0 if abs(ctx["spx_overnight"]) < 0.05 else (1 if ctx["spx_overnight"] > 0 else -1) * d)),
+        "bias_align": (None if ctx.get("claude_bias") is None else ctx["claude_bias"] * d),
     }
     return {k: (None if v is None or (isinstance(v, float) and not math.isfinite(v)) else
                 (round(float(v), 4) if isinstance(v, float) else v)) for k, v in f.items()}

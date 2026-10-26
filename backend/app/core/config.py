@@ -61,7 +61,8 @@ class StopMethod(str, Enum):
 
 
 FILTER_FEATURES = ("gap_atr", "prev_range_atr", "atr_ratio", "trend_daily", "weekday", "minutes_after_open",
-                   "or_width_atr", "stop_atr", "spread_to_stop", "trend_align", "breakout_delay_min")
+                   "or_width_atr", "stop_atr", "spread_to_stop", "trend_align", "breakout_delay_min",
+                   "spx_prev_ret", "spx_overnight", "usd_overnight", "gold_overnight", "macro_align", "bias_align")
 
 
 class EntryFilter(_Strict):

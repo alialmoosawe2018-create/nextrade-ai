@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS lessons (
   id TEXT PRIMARY KEY, run_id TEXT, symbol TEXT, feature TEXT, op TEXT, value REAL, status TEXT,
   evidence TEXT, created_at TEXT, decided_at TEXT, note TEXT
 );
+CREATE TABLE IF NOT EXISTS biases (
+  day TEXT, asset TEXT, bias TEXT, confidence INTEGER, reasons TEXT, created_at TEXT, PRIMARY KEY (day, asset)
+);
 CREATE TABLE IF NOT EXISTS ideas (
   id TEXT PRIMARY KEY, symbol TEXT, data TEXT, outcome TEXT, r_multiple REAL, resolved_at TEXT, created_at TEXT
 );
@@ -119,6 +122,19 @@ class Db:
 
     def set_lesson_status(self, lid: str, status: str, note: str = "") -> None:
         self._exec("UPDATE lessons SET status=?, decided_at=?, note=? WHERE id=?", (status, _now(), note, lid))
+
+    # ---------------------------------------------------------------- biases
+    def set_bias(self, day: str, asset: str, bias: str, confidence: int, reasons: list) -> None:
+        self._exec("INSERT OR REPLACE INTO biases VALUES (?,?,?,?,?,?)",
+                   (day, asset, bias, int(confidence), json.dumps(reasons, ensure_ascii=False), _now()))
+
+    def bias(self, day: str, asset: str) -> dict | None:
+        rows = self._rows("SELECT * FROM biases WHERE day=? AND asset=?", (day, asset))
+        return {**rows[0], "reasons": json.loads(rows[0]["reasons"] or "[]")} if rows else None
+
+    def biases(self, asset: str = "US100") -> list[dict]:
+        return [{**r, "reasons": json.loads(r["reasons"] or "[]")}
+                for r in self._rows("SELECT * FROM biases WHERE asset=? ORDER BY day", (asset,))]
 
     # ----------------------------------------------------------------- ideas
     def add_idea(self, idea: dict) -> None:

@@ -120,7 +120,8 @@ class LiveMonitor:
                 self.runner = SessionRunner(session, self.broker, self.spec, self.orb_cfg, self.risk_cfg,
                                             self.costs, self.chash, self.source, log=self._log,
                                             on_trade=self._trade, now_fn=lambda _b: pd.Timestamp(self.clock()),
-                                            prior_daily=self._prior_daily(session), news_fn=self._news_block)
+                                            prior_daily=self._prior_daily(session), news_fn=self._news_block,
+                                            macro_fn=lambda s=session: self._macro(s))
             if now < session.open_utc:
                 self.status, self.message = "WAITING_OPEN", f"Session opens {session.open_utc.isoformat()}"
                 return
@@ -145,6 +146,26 @@ class LiveMonitor:
             return None
         from app.market.news import news_block
         return news_block(self.news.events(), at, self.risk_cfg)
+
+    def _macro(self, session: Session) -> dict:
+        """Macro moves known at the open + today's Claude bias (if one was recorded). Never raises."""
+        from app.research.features import MacroContext, fetch_macro_bars
+        ctx: dict = {}
+        try:
+            prior = [s for s in self.calendar.sessions_between(session.day - pd.Timedelta(days=8), session.day)
+                     if s.day < session.day][-2:]
+            if prior:
+                bars = fetch_macro_bars(self.gw, self.tz, prior[0].open_utc - pd.Timedelta(hours=6), session.open_utc)
+                prev = prior[-1]
+                prev2 = prior[-2] if len(prior) > 1 else None
+                ctx.update(MacroContext(bars).for_session(session, prev, prev2))
+        except Exception as e:  # noqa: BLE001
+            self.last_error = f"macro context: {type(e).__name__}: {e}"
+        if self.db is not None:
+            b = self.db.bias(str(session.day), "US100")
+            if b is not None and pd.Timestamp(b["created_at"]) < session.open_utc:
+                ctx["claude_bias"] = {"BULLISH": 1, "BEARISH": -1}.get(b["bias"], 0)
+        return ctx
 
     def _prior_daily(self, session: Session) -> pd.DataFrame:
         """Previous ~40 sessions, aggregated per regular session — day context for the features."""

@@ -14,6 +14,7 @@ from app.core.config import CostModel, InstrumentSpec, OrbConfig, RiskConfig, co
 from app.core.models import DataSource
 from app.market import quality
 from app.reporting.metrics import summarize
+from app.research.features import fetch_macro_bars
 from app.reporting.runs import write_run
 from app.services.backtest import run_backtest
 from app.services.splits import HoldoutLedger, chronological_split, data_fingerprint
@@ -110,9 +111,12 @@ def run_analysis(gw: Mt5Gateway, profiles: ProfileStore, profile: Profile, symbo
         extra["holdout_fingerprint"] = fp
 
     prior = [s for s in sessions if s.day < part[0].day][-40:]  # context only, never traded
+    macro_bars = fetch_macro_bars(gw, tz_rec.to_tz(), sessions[0].open_utc - pd.Timedelta(days=4), sessions[-1].close_utc)
+    extra["macro_symbols"] = sorted(macro_bars)
     results = {}
     for k in (1.0, 1.5, 2.0):
-        res = run_backtest(bars, part, spec, orb, risk, costs.scaled(k), balance, source, prior_sessions=prior)
+        res = run_backtest(bars, part, spec, orb, risk, costs.scaled(k), balance, source, prior_sessions=prior,
+                           macro_bars=macro_bars)
         results[k] = (res, summarize(res.trades, balance, len(part)))
     base, summary = results[1.0]
     summary["cost_sensitivity"] = {f"x{k}": {"trades": s.get("trades"),
