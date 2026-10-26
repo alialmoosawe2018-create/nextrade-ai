@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.brokers.mt5_gateway import Mt5Gateway, to_utc_bars
-from app.brokers.server_time import choose, score_candidates
+from app.brokers.server_time import candidates_matching, choose, score_candidates
 from app.core.clock import MarketCalendar
 from app.core.config import CostModel, InstrumentSpec, OrbConfig, RiskConfig, config_hash
 from app.core.models import DataSource
@@ -28,7 +28,7 @@ class AnalysisBlocked(Exception):
 
 
 def ensure_server_tz(gw: Mt5Gateway, profiles: ProfileStore, profile: Profile, symbol: str,
-                     start: date, end: date) -> ServerTzRecord:
+                     start: date, end: date, now: datetime | None = None) -> ServerTzRecord:
     """Use the profile's decided server timezone, or decide it from history now (never guess)."""
     if profile.server_tz is not None:
         return profile.server_tz
@@ -38,12 +38,30 @@ def ensure_server_tz(gw: Mt5Gateway, profiles: ProfileStore, profile: Profile, s
     if raw.empty:
         raise AnalysisBlocked("NO_HISTORY", explanation=f"MT5 returned no M1 bars for {symbol} in {start}..{end}. "
                                                         "Check the symbol and that its history is downloaded in MT5.")
-    scores = score_candidates(raw, sessions) if len(raw) else []
+    # Rules can look identical on old data (e.g. summer only: UTC+3 = NY+7 = Nicosia) yet differ TODAY.
+    # The live clock decides between them; without it, an ambiguity that matters now is refused.
+    now = now or datetime.now(timezone.utc)
+    measured = gw.measured_offset_hours(symbol, now)
+    candidates = candidates_matching(measured, now)
+    if not candidates:
+        raise AnalysisBlocked("SERVER_TIME_UNDETERMINED",
+                              explanation=f"Live server offset UTC{measured:+g} matches no known rule")
+    scores = score_candidates(raw, sessions, candidates)
     tz, why = choose(scores)
     if tz is None:
         raise AnalysisBlocked(
             "SERVER_TIME_UNDETERMINED", explanation=why,
             scores=[{"rule": s["name"], "score": s["score"], "days": s["days_tested"]} for s in scores])
+    if measured is None:
+        best = next(s for s in scores if s["candidate"] == tz)
+        twins = [s["candidate"] for s in scores
+                 if s["candidate"] != tz and s["wins"] == best["wins"] and s["center"] == best["center"]]
+        if any(t.offset_at(now) != tz.offset_at(now) for t in twins):
+            raise AnalysisBlocked("SERVER_TIME_AMBIGUOUS", explanation=(
+                f"{tz.name} and {', '.join(t.name for t in twins)} fit the history equally but differ today. "
+                "Run the analysis while the market is open so the live server clock can decide."))
+    else:
+        why += f"; live clock UTC{measured:+g}"
     rec = ServerTzRecord(kind=tz.kind, hours=tz.hours, zone=tz.zone, evidence=why,
                          decided_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
     profile.server_tz = rec

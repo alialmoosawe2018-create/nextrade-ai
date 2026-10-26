@@ -179,3 +179,22 @@ def test_quote_and_measured_offset():
     assert q["ask"] > q["bid"]
     now = g._m.now_utc()
     assert g.measured_offset_hours("US100.mock", now) in (None, 2.0, 3.0)
+
+
+def test_live_clock_breaks_ties_that_history_cannot(tmp_path, monkeypatch):
+    """Summer-only history fits UTC+3, Nicosia and NY+7 equally; on 2026-10-26 they differ (+3/+2/+3)."""
+    from app.services.analysis import AnalysisBlocked, ensure_server_tz
+    from app.storage.store import Profile, ProfileStore
+    g = connected()
+    store = ProfileStore(tmp_path)
+    now = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+    # No live measurement -> refuse instead of picking the wrong twin.
+    monkeypatch.setattr(g, "measured_offset_hours", lambda sym, n=None: None)
+    p = store.save(Profile(label="x", kind="MOCK"))
+    with pytest.raises(AnalysisBlocked) as e:
+        ensure_server_tz(g, store, p, "US100.mock", date(2026, 6, 1), date(2026, 7, 31), now=now)
+    assert e.value.reason == "SERVER_TIME_AMBIGUOUS"
+    # Live clock says UTC+2 -> only Nicosia fits both history and today.
+    monkeypatch.setattr(g, "measured_offset_hours", lambda sym, n=None: 2.0)
+    rec = ensure_server_tz(g, store, p, "US100.mock", date(2026, 6, 1), date(2026, 7, 31), now=now)
+    assert (rec.kind, rec.zone) == ("zone", "Europe/Nicosia") and "live clock UTC+2" in rec.evidence
