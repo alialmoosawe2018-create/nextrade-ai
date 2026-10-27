@@ -94,3 +94,10 @@ def test_failures_back_off_instead_of_hammering(tmp_path):
     for _ in range(20):
         c.events()
     assert len(calls) == 1
+
+
+def test_owner_can_switch_the_news_filter_off(tmp_path):
+    ev = cal(tmp_path).events()
+    off = RiskConfig(max_spread=5.0, news_filter=False)
+    assert news_block(ev, at("2026-10-27 12:05"), RISK)            # on: CPI blocks
+    assert news_block(ev, at("2026-10-27 12:05"), off) is None     # off: nothing blocks

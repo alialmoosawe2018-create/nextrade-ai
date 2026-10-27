@@ -137,6 +137,7 @@ class RiskConfig(_Strict):
     max_volume: float | None = Field(None, gt=0)
     trading_enabled: bool = True  # False = kill switch
     # News protection (live only: the calendar covers the current week).
+    news_filter: bool = True               # owner 2026-10-27: False = trade through news days too
     news_blackout_before_min: int = Field(30, ge=0, le=240)
     news_blackout_after_min: int = Field(30, ge=0, le=240)
     news_impacts: tuple[str, ...] = ("High",)

@@ -83,7 +83,7 @@ def relevant(events: list[dict], impacts, currencies) -> list[dict]:
 
 def news_block(events: list[dict] | None, now: pd.Timestamp, risk) -> str | None:
     """Reason to block a trade at `now`, or None. Unknown calendar never blocks (it is reported instead)."""
-    if not events:
+    if not events or not getattr(risk, "news_filter", True):
         return None
     rel = relevant(events, risk.news_impacts, risk.news_currencies)
     ny_day = now.tz_convert(NEW_YORK).date()
