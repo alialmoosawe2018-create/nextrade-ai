@@ -201,3 +201,14 @@ def test_finds_claude_inside_the_packaged_app_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))   # outside the app: no redirected view
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
     assert chat_mod.find_claude_exe() == str(exe)
+
+
+def test_finds_claude_in_the_claude_data_folder(tmp_path, monkeypatch):
+    # App 3.6556+ keeps Claude Code under %LOCALAPPDATA%/Claude-Data/claude_<id>/claude-code.
+    exe = tmp_path / "Local" / "Claude-Data" / "claude_abc123" / "claude-code" / "2.1.308" / "h" / "claude.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    monkeypatch.setattr(chat_mod.shutil, "which", lambda _n: None)
+    assert chat_mod.find_claude_exe() == str(exe)

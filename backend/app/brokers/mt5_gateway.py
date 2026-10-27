@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -186,8 +187,17 @@ class Mt5Gateway:
     def quote(self, symbol: str) -> dict | None:
         self._require()
         t = self._call("symbol_info_tick", symbol)
-        if t is None:
-            return None
+        if t is None or not t.time:
+            # MT5 streams ticks only for symbols in Market Watch (XAUUSD/US500 are not there by default).
+            if not self._call("symbol_select", symbol, True):
+                return None
+            for _ in range(5):  # the first tick arrives a moment after the symbol is added
+                t = self._call("symbol_info_tick", symbol)
+                if t is not None and t.time:
+                    break
+                time.sleep(0.2)
+            else:
+                return None
         return {"server_epoch": int(t.time), "bid": float(t.bid), "ask": float(t.ask),
                 "spread": float(t.ask) - float(t.bid)}
 

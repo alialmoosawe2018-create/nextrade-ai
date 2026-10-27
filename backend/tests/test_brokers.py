@@ -198,3 +198,34 @@ def test_live_clock_breaks_ties_that_history_cannot(tmp_path, monkeypatch):
     monkeypatch.setattr(g, "measured_offset_hours", lambda sym, n=None: 2.0)
     rec = ensure_server_tz(g, store, p, "US100.mock", date(2026, 6, 1), date(2026, 7, 31), now=now)
     assert (rec.kind, rec.zone) == ("zone", "Europe/Nicosia") and "live clock UTC+2" in rec.evidence
+
+
+def test_quote_adds_a_symbol_to_market_watch_when_it_has_no_tick():
+    # Real MT5: symbol_info_tick gives nothing for symbols outside Market Watch (seen 2026-10-27: XAUUSD, US500).
+    g = gw()
+    g.connect("attach")
+    fake = g._m
+    plain = fake.symbol_info_tick
+    fake.symbol_info_tick = lambda n: plain(n) if n in fake._selected else None
+    assert "XAUUSD.mock" not in fake._selected
+    q = g.quote("XAUUSD.mock")
+    assert q is not None and q["bid"] > 0 and "XAUUSD.mock" in fake._selected
+    assert g.quote("NOPE") is None
+
+
+def test_quote_waits_briefly_for_the_first_tick_after_adding_a_symbol(monkeypatch):
+    import app.brokers.mt5_gateway as gm
+    monkeypatch.setattr(gm.time, "sleep", lambda _s: None)
+    g = gw()
+    g.connect("attach")
+    fake = g._m
+    plain, seen = fake.symbol_info_tick, {"n": 0}
+
+    def late(n):  # outside Market Watch: nothing; after selecting: nothing on the first poll, then ticks
+        if n not in fake._selected:
+            return None
+        seen["n"] += 1
+        return plain(n) if seen["n"] >= 2 else None
+    fake.symbol_info_tick = late
+    q = g.quote("XAUUSD.mock")
+    assert q is not None and q["bid"] > 0

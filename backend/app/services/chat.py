@@ -93,11 +93,13 @@ def find_claude_exe() -> str | None:
     The Claude desktop app is a packaged (MSIX) Windows app: inside the app, %APPDATA%\\Claude is a
     redirected view of %LOCALAPPDATA%\\Packages\\Claude_*\\LocalCache\\Roaming\\Claude. A process started
     outside the app (e.g. start-platform.bat) only sees the real Packages path, so both are searched.
+    Since app 3.6556 (2026-10) the files live in %LOCALAPPDATA%\\Claude-Data\\claude_*\\claude-code.
     """
     roots = [Path(os.environ.get("APPDATA", "")) / "Claude" / "claude-code"]
     local = Path(os.environ.get("LOCALAPPDATA", ""))
     roots += [Path(p) / "LocalCache" / "Roaming" / "Claude" / "claude-code"
               for p in glob.glob(str(local / "Packages" / "Claude_*"))]
+    roots += [Path(p) / "claude-code" for p in glob.glob(str(local / "Claude-Data" / "claude_*"))]
     exes = [e for r in roots for e in glob.glob(str(r / "**" / "claude.exe"), recursive=True)]
     if exes:
         return max(exes, key=os.path.getmtime)
