@@ -38,5 +38,5 @@
 
 ## Data
 - `data/` is gitignored: market data, runs, journals, profiles and ledgers never enter git.
-- The repository is private and local; it must not be pushed to a public remote.
+- The owner published the code on GitHub (2026-10-28). Never commit `data/` (accounts, trades, price history) or any `.env`; only `data/settings/*.json` (strategy + risk parameters, no account data) is tracked.
 - AI provider keys (phase C) will live only in `.env` on this machine, never in the browser.

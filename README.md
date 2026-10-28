@@ -1,6 +1,6 @@
 # NexTrade AI — Nasdaq research & paper-trading platform
 
-Private, local platform. **Simulation / paper trading only. Real trading is locked in code.**
+Local platform (the code is published on GitHub by the owner; it still runs only on 127.0.0.1). **Simulation / paper trading only. Real trading is locked in code.**
 Nothing here is a trading recommendation or a claim of profitability.
 
 ## What it does
@@ -58,3 +58,19 @@ cd backend; ..\.venv\Scripts\python.exe -m app.cli demo; cd ..
 ```
 
 Docs: `docs/TRADING_RULES.md` · `docs/ARCHITECTURE.md` · `docs/SECURITY.md` · `docs/ROADMAP.md`.
+
+## Status at hand-over (2026-10-28)
+- Tested on a **MetaQuotes-Demo** account (symbol `USTEC`; server time Europe/Nicosia, chosen from the live clock).
+  That broker serves only ~100k M1 bars (history from 2026-07-15).
+- Settings in use: `data/settings/strategy.json` (version `2-scaled`: distances scaled from the median 15-min
+  opening-range width on the dev period, W = 144.4) and `data/settings/risk.json` (`news_filter: false` — the owner
+  chose to trade through news days).
+- Backtest 2026-07-16 → 2026-10-23: 34 trades, expectancy about −0.03 R per trade → **no edge shown yet**.
+  The holdout period has never been opened. The learning loop needs ≥ 60 trades before it proposes lessons.
+- Live paper monitor: 2026-10-26 LONG −1.0 R, 2026-10-27 SHORT −1.0 R (both stopped out within 15 min).
+- Fundamental context is recorded in **shadow** only: macro moves before the open (S&P 500, dollar, gold) and a daily
+  Claude bias (`/api/learning/biases`). Neither gates trades yet.
+- Open item: on 2026-10-27 the live S&P/gold pre-open values were empty (they were recomputed fine later);
+  check `spx_overnight` / `gold_overnight` in the live trade features.
+- The in-app chat and daily brief use the local Claude Code CLI (`claude -p`), found by `find_claude_exe()`.
+- There is **no order-sending code** (a test enforces it). Trade ideas are executed by hand.

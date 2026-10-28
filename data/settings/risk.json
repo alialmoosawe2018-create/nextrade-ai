@@ -1,0 +1,14 @@
+{
+  "risk_per_trade_pct": 0.5,
+  "max_daily_loss_pct": 1.5,
+  "max_trades_per_day": 2,
+  "max_concurrent_positions": 1,
+  "max_spread": 5.0,
+  "max_data_age_seconds": 90,
+  "max_volume": null,
+  "trading_enabled": true,
+  "allowed_modes": [
+    "SIMULATION"
+  ],
+  "news_filter": false
+}

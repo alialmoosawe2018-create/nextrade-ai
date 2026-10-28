@@ -6,6 +6,10 @@ __pycache__/
 # Data and run outputs (never committed)
 data/*
 !data/.gitkeep
+!data/settings/
+data/settings/*
+!data/settings/strategy.json
+!data/settings/risk.json
 # Secrets
 .env
 *.env
